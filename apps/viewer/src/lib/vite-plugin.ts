@@ -25,7 +25,8 @@ export function piArtifactsPlugin({ dir, designDir }: { dir: string; designDir?:
 		enforce: "pre",
 		// styles.css declares `@source "PI_ARTIFACTS_DIR"`; point Tailwind at the real directory.
 		transform(code, id) {
-			if (!id.split("?")[0].endsWith("/src/styles.css")) return;
+			// Only the CSS source itself — not `styles.css?url` and friends, which are JS modules.
+			if (!id.split("?")[0].endsWith("/src/styles.css") || !code.includes('@source "PI_ARTIFACTS_DIR";')) return;
 			const source = `@source ${JSON.stringify(dir.replaceAll("\\", "/"))};`;
 			return code.replace('@source "PI_ARTIFACTS_DIR";', source) + userTheme(designDir);
 		},

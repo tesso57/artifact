@@ -4,7 +4,7 @@
  * The faux model calls artifact_write; then a browser opens the artifact, which calls the
  * MCP server through pi and stores data in SQLite memory.
  */
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,10 @@ const root = resolve(here, "../..");
 const agentDir = mkdtempSync(join(tmpdir(), "pi-agent-"));
 // Keep test artifacts and memory out of ~/.pi/artifacts.
 process.env.PI_ARTIFACTS_DIR ??= mkdtempSync(join(tmpdir(), "pi-artifacts-e2e-"));
+// A user design system: theme.css overrides must reach every artifact.
+const designDir = join(process.env.PI_ARTIFACTS_DIR, ".design");
+mkdirSync(designDir, { recursive: true });
+writeFileSync(join(designDir, "theme.css"), ":root { --radius: 0.1234rem; }\n");
 const cwd = mkdtempSync(join(tmpdir(), "pi-cwd-"));
 
 const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
@@ -39,10 +43,12 @@ faux.setResponses([
 	fauxAssistantMessage("Done — open the artifact."),
 ]);
 
+// Load the extension and its skills like `pi install ./packages/extension` would.
+const settingsManager = SettingsManager.inMemory({ packages: [join(root, "packages/extension")] } as never);
 const resourceLoader = new DefaultResourceLoader({
 	cwd,
 	agentDir,
-	additionalExtensionPaths: [join(root, "packages/extension")],
+	settingsManager,
 	extensionFactories: [
 		(pi) => {
 			pi.registerProvider(faux.provider as never);
@@ -52,7 +58,8 @@ const resourceLoader = new DefaultResourceLoader({
 	],
 });
 await resourceLoader.reload();
-const settingsManager = SettingsManager.inMemory?.() ?? SettingsManager.create(cwd, agentDir);
+const skills = resourceLoader.getSkills().skills.map((s) => s.name).sort();
+if (skills.join() !== "artifact-design-system,artifact-template-creator,artifacts") throw new Error(`skills: ${skills}`);
 
 const { session } = await createAgentSession({
 	cwd,
@@ -97,6 +104,8 @@ try {
 	await page.locator(".recharts-bar-rectangle").first().waitFor({ timeout: 10000 });
 	const boxes = await page.locator("[data-slot=card]").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
 	if (boxes.length !== 2 || Math.abs(boxes[0] - boxes[1]) > 2) throw new Error(`expected two cards side by side, got tops ${boxes}`);
+	const radius = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--radius").trim());
+	if (radius !== "0.1234rem") throw new Error(`theme.css not applied (--radius: ${radius})`);
 	await page.getByRole("button", { name: "Reverse" }).click();
 	await page.getByTestId("history").getByText("ip olleh").waitFor({ timeout: 20000 });
 	await page.waitForTimeout(800);
@@ -126,6 +135,32 @@ try {
 	const html = readFileSync(join(cwd, "demo.html"), "utf8");
 	if (!html.includes("ip olleh") || !html.includes('\\"stars\\":1234')) throw new Error("export lacks memory or MCP snapshot");
 	console.log(`artifact_export: ${(html.length / 1024).toFixed(0)} KB with memory + MCP snapshot`);
+
+	// Templates: bundled ones are listed; a user template is saved, compiled and previewed.
+	faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("artifact_template", { action: "list" })),
+		fauxAssistantMessage(
+			fauxToolCall("artifact_template", {
+				action: "save",
+				name: "e2e-hello",
+				title: "Hello",
+				description: "Says hello",
+				useCases: ["greet someone"],
+				code: "export default function Hello() { return <p>hello template</p>; }",
+				preview: true,
+			}),
+		),
+		fauxAssistantMessage("ok"),
+	]);
+	await session.prompt("Make a template");
+	const tplResults = session.messages.filter((m: any) => m.role === "toolResult" && m.toolName === "artifact_template") as any[];
+	const listed = JSON.parse(tplResults.at(-2).content[0].text).map((t: any) => t.name);
+	for (const n of ["dashboard", "data-table", "form-tool", "mcp-explorer", "style-guide"]) {
+		if (!listed.includes(n)) throw new Error(`bundled template ${n} missing: ${listed}`);
+	}
+	const saved = tplResults.at(-1).content[0].text as string;
+	if (tplResults.at(-1).isError || !/Preview: \S+\/a\/template-e2e-hello/.test(saved)) throw new Error(`template save: ${saved}`);
+	console.log(`artifact_template: ${listed.length} templates, saved + previewed e2e-hello`);
 	console.log("\nE2E OK");
 } catch (error) {
 	failed = true;

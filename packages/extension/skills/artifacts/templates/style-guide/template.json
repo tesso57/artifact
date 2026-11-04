@@ -1,0 +1,6 @@
+{
+  "title": "Style guide",
+  "description": "Living style guide of the artifact design system: color tokens, chart colors, type scale, components and data states in one page.",
+  "useCases": ["preview a theme or design-system change", "show which components and tokens exist", "review the look in light and dark mode"],
+  "tags": ["design-system", "theme", "reference"]
+}

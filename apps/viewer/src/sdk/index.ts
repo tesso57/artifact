@@ -10,7 +10,9 @@
  * any MCP server connected to pi (`mcp__<server>__<tool>`).
  */
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import { useCallback, useContext } from "react";
+// Browser-safe subpath: the package root also exports Node-only modules.
+import { normalizeMcpToolName } from "@pi-artifacts/core/bridge";
+import { useCallback, useContext, useMemo, useRef } from "react";
 import {
 	mcpCallFn,
 	mcpListToolsFn,
@@ -23,7 +25,7 @@ import {
 import { ArtifactContext } from "./context";
 
 export { type ArtifactInfo, useArtifact } from "./context";
-export type { McpCallResult, McpToolInfo } from "@pi-artifacts/core";
+export type { McpCallResult, McpToolInfo } from "@pi-artifacts/core/bridge";
 
 // ---------------------------------------------------------------------------
 // Memory
@@ -72,26 +74,28 @@ export function useMemory<T>(
 ): [T, (next: T | ((prev: T) => T)) => void, { loading: boolean; error: unknown }] {
 	const scope = useScope(options.scope);
 	const qc = useQueryClient();
-	const queryKey = memoryKey(scope, key);
+	const queryKey = useMemo(() => memoryKey(scope, key), [scope, key]);
+	// `initial` is only a default; keep the latest without re-creating callbacks on every render.
+	const initialRef = useRef(initial);
+	initialRef.current = initial;
 	const query = useQuery({
 		queryKey,
-		queryFn: async () => (await memory.get<T>(scope, key)) ?? initial,
+		queryFn: async () => (await memory.get<T>(scope, key)) ?? initialRef.current,
 	});
-	const mutation = useMutation({
+	const { mutate, error: mutationError } = useMutation({
 		mutationFn: (value: T) => memory.set(scope, key, value),
 		onError: () => qc.invalidateQueries({ queryKey }),
 	});
 	const set = useCallback(
 		(next: T | ((prev: T) => T)) => {
-			const prev = (qc.getQueryData<T>(queryKey) ?? initial) as T;
+			const prev = qc.getQueryData<T>(queryKey) ?? initialRef.current;
 			const value = typeof next === "function" ? (next as (p: T) => T)(prev) : next;
 			qc.setQueryData(queryKey, value);
-			mutation.mutate(value);
+			mutate(value);
 		},
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[qc, scope, key],
+		[qc, queryKey, mutate],
 	);
-	return [(query.data ?? initial) as T, set, { loading: query.isPending, error: query.error ?? mutation.error }];
+	return [(query.data ?? initial) as T, set, { loading: query.isPending, error: query.error ?? mutationError }];
 }
 
 /** Every entry of a scope (optionally under a key prefix). */
@@ -107,11 +111,6 @@ export function useMemoryList(options: MemoryOptions & { prefix?: string } = {})
 // MCP
 // ---------------------------------------------------------------------------
 
-function toolName(nameOrServer: string, tool?: string): string {
-	if (tool) return `mcp__${nameOrServer}__${tool}`;
-	return nameOrServer.startsWith("mcp__") ? nameOrServer : nameOrServer.replace(/^([^.]+)\./, "mcp__$1__");
-}
-
 /**
  * Call an MCP tool through pi. Accepts `"mcp__github__search_issues"`,
  * `"github.search_issues"`, or `("github", "search_issues")`.
@@ -122,7 +121,7 @@ export async function callMcp<T = unknown>(
 	args: Record<string, unknown> = {},
 	options: { artifactId?: string } = {},
 ) {
-	const result = await mcpCallFn({ data: { name: toolName(name), args, artifactId: options.artifactId } });
+	const result = await mcpCallFn({ data: { name: normalizeMcpToolName(name), args, artifactId: options.artifactId } });
 	if (result.isError) throw new Error(result.text || `MCP tool ${name} failed`);
 	return { ...result, data: result.data as T };
 }
@@ -149,7 +148,7 @@ export function useMcp<T = unknown>(
 ) {
 	const artifact = useContext(ArtifactContext);
 	return useQuery({
-		queryKey: ["pi-mcp", toolName(name), args],
+		queryKey: ["pi-mcp", normalizeMcpToolName(name), args],
 		queryFn: () => callMcp<T>(name, args, { artifactId: artifact?.id }),
 		staleTime: 60_000,
 		...options,

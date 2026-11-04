@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Memory } from "../src/memory.ts";
-import { parseMcpToolName } from "../src/bridge.ts";
+import { normalizeMcpToolName, parseMcpToolName } from "../src/bridge.ts";
 
 describe("Memory", () => {
 	it("stores JSON values per scope", () => {
@@ -53,5 +53,18 @@ describe("parseMcpToolName", () => {
 	it("splits server and tool", () => {
 		expect(parseMcpToolName("mcp__github__search_issues")).toEqual({ server: "github", tool: "search_issues" });
 		expect(parseMcpToolName("bash")).toBeUndefined();
+	});
+});
+
+describe("normalizeMcpToolName", () => {
+	const cases: [[string, string?], string][] = [
+		[["mcp__gh__search"], "mcp__gh__search"],
+		[["gh.search"], "mcp__gh__search"],
+		[["gh.search.v2"], "mcp__gh__search.v2"],
+		[["gh", "search"], "mcp__gh__search"],
+		[["bash"], "bash"],
+	];
+	it.each(cases)("%j → %s", (args, expected) => {
+		expect(normalizeMcpToolName(...args)).toBe(expected);
 	});
 });

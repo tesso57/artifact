@@ -27,8 +27,13 @@ export function slugify(input: string): string {
 	return slug || `artifact-${Date.now().toString(36)}`;
 }
 
+/** Artifact ids (and memory scopes): lowercase slug, max 64 chars. */
+export function isValidId(id: string): boolean {
+	return ID_RE.test(id);
+}
+
 export function assertValidId(id: string): void {
-	if (!ID_RE.test(id)) {
+	if (!isValidId(id)) {
 		throw new Error(`Invalid artifact id "${id}": use lowercase letters, digits and "-" (max 64 chars)`);
 	}
 }
@@ -85,7 +90,7 @@ export async function listArtifacts(root = artifactsDir()): Promise<ArtifactMeta
 	const entries = await readdir(root, { withFileTypes: true });
 	const metas = await Promise.all(
 		entries
-			.filter((e) => e.isDirectory() && ID_RE.test(e.name))
+			.filter((e) => e.isDirectory() && isValidId(e.name))
 			.map((e) => readMeta(e.name, root).catch(() => undefined)),
 	);
 	return metas.filter((m): m is ArtifactMeta => !!m).sort((a, b) => b.updatedAt - a.updatedAt);

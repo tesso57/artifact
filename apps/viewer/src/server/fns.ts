@@ -1,6 +1,7 @@
 import {
 	BRIDGE_TOKEN_HEADER,
 	getMemory,
+	isValidId,
 	listArtifacts,
 	type McpCallResult,
 	type McpToolInfo,
@@ -32,43 +33,34 @@ export const getArtifactCodeFn = createServerFn({ method: "GET" })
 // Memory (SQLite)
 // ---------------------------------------------------------------------------
 
-type ScopeKey = { scope: string; key: string };
-
-function checkScope(scope: string) {
-	if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(scope)) throw new Error(`Invalid memory scope "${scope}"`);
+/** Validator for memory inputs: the scope must be an artifact id or "shared". */
+function scoped<T extends { scope: string }>(data: T): T {
+	if (!isValidId(data.scope)) throw new Error(`Invalid memory scope "${data.scope}"`);
+	return data;
 }
 
+type ScopeKey = { scope: string; key: string };
+
 export const memoryGetFn = createServerFn({ method: "POST" })
-	.validator((d: ScopeKey) => d)
-	.handler(({ data }) => {
-		checkScope(data.scope);
-		// `null` instead of undefined so the value survives serialization.
-		return { value: getMemory().get(data.scope, data.key) ?? null };
-	});
+	.validator((d: ScopeKey) => scoped(d))
+	// `null` instead of undefined so the value survives serialization.
+	.handler(({ data }) => ({ value: getMemory().get(data.scope, data.key) ?? null }));
 
 export const memorySetFn = createServerFn({ method: "POST" })
-	.validator((d: ScopeKey & { value: unknown }) => d)
-	.handler(({ data }) => {
-		checkScope(data.scope);
-		const entry = getMemory().set(data.scope, data.key, data.value ?? undefined);
-		return { updatedAt: entry.updatedAt };
-	});
+	.validator((d: ScopeKey & { value: unknown }) => scoped(d))
+	.handler(({ data }) => ({ updatedAt: getMemory().set(data.scope, data.key, data.value ?? undefined).updatedAt }));
 
 export const memoryDeleteFn = createServerFn({ method: "POST" })
-	.validator((d: ScopeKey) => d)
-	.handler(({ data }) => {
-		checkScope(data.scope);
-		return { deleted: getMemory().delete(data.scope, data.key) };
-	});
+	.validator((d: ScopeKey) => scoped(d))
+	.handler(({ data }) => ({ deleted: getMemory().delete(data.scope, data.key) }));
 
 export const memoryListFn = createServerFn({ method: "POST" })
-	.validator((d: { scope: string; prefix?: string }) => d)
-	.handler(({ data }) => {
-		checkScope(data.scope);
-		return getMemory()
+	.validator((d: { scope: string; prefix?: string }) => scoped(d))
+	.handler(({ data }) =>
+		getMemory()
 			.list(data.scope, data.prefix)
-			.map((e) => ({ key: e.key, value: e.value as never, updatedAt: e.updatedAt }));
-	});
+			.map((e) => ({ key: e.key, value: e.value as never, updatedAt: e.updatedAt })),
+	);
 
 // ---------------------------------------------------------------------------
 // MCP, through the pi extension's bridge

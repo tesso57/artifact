@@ -1,3 +1,4 @@
+// Browser-safe: no Node imports here (the viewer SDK imports this module in the browser).
 /** Wire types for the pi ⇄ viewer bridge (the pi extension serves it, the viewer server calls it). */
 
 export interface McpToolInfo {
@@ -26,4 +27,15 @@ export const BRIDGE_TOKEN_HEADER = "x-pi-artifacts-token";
 export function parseMcpToolName(name: string): { server: string; tool: string } | undefined {
 	const m = /^mcp__(.+?)__(.+)$/.exec(name);
 	return m ? { server: m[1], tool: m[2] } : undefined;
+}
+
+/**
+ * Accept `"mcp__server__tool"`, `"server.tool"`, or (`"server"`, `"tool"`) and return the pi
+ * tool name `mcp__server__tool`.
+ */
+export function normalizeMcpToolName(nameOrServer: string, tool?: string): string {
+	if (tool) return `mcp__${nameOrServer}__${tool}`;
+	if (nameOrServer.startsWith("mcp__")) return nameOrServer;
+	const dot = nameOrServer.indexOf(".");
+	return dot > 0 ? `mcp__${nameOrServer.slice(0, dot)}__${nameOrServer.slice(dot + 1)}` : nameOrServer;
 }

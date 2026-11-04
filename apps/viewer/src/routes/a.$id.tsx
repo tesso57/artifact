@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, Code2, Database, Eye } from "lucide-react";
-import { type ComponentType, Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 import { ArtifactErrorBoundary, ErrorPanel } from "@/components/artifact-error";
 import { McpBadge } from "@/components/mcp-badge";
 import { MemoryTable } from "@/components/memory-table";
@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { timeAgo } from "@/lib/format";
 import { useArtifactsChanged } from "@/lib/hmr";
+import { useArtifactModule } from "@/lib/use-artifact-module";
 import { ArtifactContext } from "@/sdk/context";
 import { getArtifactCodeFn, getArtifactFn } from "@/server/fns";
 
@@ -25,40 +26,6 @@ export const Route = createFileRoute("/a/$id")({
 		</div>
 	),
 });
-
-type Loaded = { status: "loading" } | { status: "ready"; Component: ComponentType } | { status: "error"; error: unknown };
-
-function useArtifactModule(url: string, version: number): Loaded {
-	const [state, setState] = useState<Loaded>({ status: "loading" });
-	const [attempt, setAttempt] = useState(0);
-	useEffect(() => {
-		let cancelled = false;
-		// First load uses the plain URL so Vite HMR / Fast Refresh tracks it; a retry
-		// after a failed import needs a fresh URL because the browser caches failures.
-		const src = attempt === 0 ? url : `${url}?t=${version}-${attempt}`;
-		import(/* @vite-ignore */ src).then(
-			(mod) => {
-				if (cancelled) return;
-				const Component = mod.default;
-				if (typeof Component !== "function") {
-					setState({ status: "error", error: new Error("The artifact must `export default` a React component") });
-				} else {
-					setState({ status: "ready", Component });
-				}
-			},
-			(error) => !cancelled && setState({ status: "error", error }),
-		);
-		return () => {
-			cancelled = true;
-		};
-	}, [url, attempt, version]);
-	// Retry when a new version arrives after a failed import.
-	useEffect(() => {
-		if (state.status === "error") setAttempt((n) => n + 1);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [version]);
-	return state;
-}
 
 function ArtifactPage() {
 	const meta = Route.useLoaderData();

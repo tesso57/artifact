@@ -1,6 +1,7 @@
-import { artifactsDir, deleteArtifact, listArtifacts, readMeta } from "@pi-artifacts/core";
+import { artifactsDir, deleteArtifact, exportArtifactHtml, listArtifacts, readMeta } from "@pi-artifacts/core";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { openInBrowser } from "./open.ts";
+import { exportTarget } from "./tools/artifact-export.ts";
 import type { ArtifactsRuntime } from "./runtime.ts";
 
 const GALLERY = "▸ Open gallery";
@@ -27,10 +28,11 @@ async function open(runtime: ArtifactsRuntime, ctx: ExtensionCommandContext, id:
 
 export function registerArtifactsCommand(pi: ExtensionAPI, runtime: ArtifactsRuntime): void {
 	pi.registerCommand("artifacts", {
-		description: "Open the artifact gallery or an artifact (/artifacts [id|stop|delete <id>])",
+		description: "Open the gallery or an artifact (/artifacts [id | export <id> [file] | delete <id> | stop])",
 		getArgumentCompletions: async (prefix) => {
 			const items = [
 				{ value: "stop", label: "stop", description: "Stop the viewer" },
+				{ value: "export", label: "export", description: "Export an artifact as one HTML file" },
 				{ value: "delete", label: "delete", description: "Delete an artifact" },
 				...(await listArtifacts()).map((a) => ({ value: a.id, label: a.id, description: a.title })),
 			];
@@ -39,11 +41,22 @@ export function registerArtifactsCommand(pi: ExtensionAPI, runtime: ArtifactsRun
 		},
 		handler: async (args, ctx) => {
 			runtime.attach(ctx);
-			const [sub, arg] = args.trim().split(/\s+/);
+			const [sub, arg, path] = args.trim().split(/\s+/);
 
 			if (sub === "stop") {
 				await runtime.shutdown();
 				return ctx.ui.notify("Artifact viewer stopped", "info");
+			}
+			if (sub === "export") {
+				if (!arg) return ctx.ui.notify("Usage: /artifacts export <id> [file.html]", "warning");
+				if (!(await readMeta(arg))) return ctx.ui.notify(`No artifact "${arg}"`, "error");
+				ctx.ui.notify(`Exporting ${arg}…`, "info");
+				try {
+					const { file, bytes } = await exportArtifactHtml(arg, exportTarget(ctx.cwd, arg, path));
+					return ctx.ui.notify(`Exported ${file} (${(bytes / 1024).toFixed(0)} KB)`, "info");
+				} catch (error) {
+					return ctx.ui.notify(`Export failed: ${(error as Error).message}`, "error");
+				}
 			}
 			if (sub === "delete") {
 				if (!arg) return ctx.ui.notify("Usage: /artifacts delete <id>", "warning");

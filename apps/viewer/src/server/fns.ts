@@ -3,12 +3,17 @@ import {
 	getMemory,
 	isValidId,
 	listArtifacts,
+	MCP_CACHE_SCOPE,
+	mcpCacheKey,
 	type McpCallResult,
 	type McpToolInfo,
 	readCode,
 	readMeta,
 } from "@pi-artifacts/core";
-import { artifactModuleUrl, VIEWER_DIR } from "@pi-artifacts/core";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { artifactModuleUrl, exportArtifactHtml, VIEWER_DIR } from "@pi-artifacts/core";
 import { createServerFn } from "@tanstack/react-start";
 
 // ---------------------------------------------------------------------------
@@ -100,5 +105,28 @@ export const mcpCallFn = createServerFn({ method: "POST" })
 	.validator((d: { name: string; args?: Record<string, unknown>; artifactId?: string }) => d)
 	.handler(async ({ data }) => {
 		const r = await bridge<McpCallResult>("/mcp/call", data);
+		// Remember the latest successful result per artifact call, so an HTML export can replay it.
+		if (!r.isError && data.artifactId && isValidId(data.artifactId)) {
+			getMemory().set(MCP_CACHE_SCOPE, mcpCacheKey(data.artifactId, data.name, data.args), r);
+		}
 		return { ...r, data: (r.data ?? null) as never, content: r.content as never[] };
+	});
+
+// ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
+
+export const exportArtifactFn = createServerFn({ method: "POST" })
+	.validator((id: string) => {
+		if (!isValidId(id)) throw new Error(`Invalid artifact id "${id}"`);
+		return id;
+	})
+	.handler(async ({ data: id }) => {
+		const dir = await mkdtemp(join(tmpdir(), "pi-artifact-export-"));
+		try {
+			const { file, bytes } = await exportArtifactHtml(id, join(dir, `${id}.html`));
+			return { html: await readFile(file, "utf8"), bytes, fileName: `${id}.html` };
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});

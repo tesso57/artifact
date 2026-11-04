@@ -1,0 +1,42 @@
+{
+  "workspaces": {
+    ".": {
+      "ignore": [
+        "test/e2e/demo-artifact.tsx",
+        "test/e2e/echo-mcp-server.mjs"
+      ],
+      "ignoreDependencies": [
+        "@earendil-works/pi-coding-agent",
+        "@earendil-works/pi-ai"
+      ]
+    },
+    "apps/viewer": {
+      "entry": [
+        "src/router.tsx",
+        "src/routes/**/*.tsx",
+        "src/export/entry.tsx",
+        "src/export/static-backend.ts",
+        "scripts/export.ts",
+        "src/components/ui/*.tsx",
+        "src/sdk/index.ts"
+      ],
+      "ignoreDependencies": [
+        "recharts"
+      ]
+    },
+    "packages/extension": {
+      "entry": [
+        "src/index.ts",
+        "test/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "vite"
+      ]
+    },
+    "packages/core": {
+      "entry": [
+        "test/**/*.ts"
+      ]
+    }
+  }
+}

@@ -20,3 +20,25 @@ describe("findFreePort", () => {
 		expect(port).toBeGreaterThanOrEqual(40000);
 	});
 });
+
+import { exportTarget } from "../src/tools/artifact-export.ts";
+import { nodeBinary, nodeTsFlags } from "@pi-artifacts/core";
+
+describe("exportTarget", () => {
+	it("defaults to <cwd>/<id>.html and resolves relative paths", () => {
+		expect(exportTarget("/w", "demo")).toBe("/w/demo.html");
+		expect(exportTarget("/w", "demo", "out/x.html")).toBe("/w/out/x.html");
+		expect(exportTarget("/w", "demo", "@x.html")).toBe("/w/x.html");
+		expect(exportTarget("/w", "demo", "/abs/x.html")).toBe("/abs/x.html");
+	});
+});
+
+describe("nodeBinary", () => {
+	it("uses PI_ARTIFACTS_NODE, else node", () => {
+		process.env.PI_ARTIFACTS_NODE = "/opt/node";
+		expect(nodeBinary()).toBe("/opt/node");
+		delete process.env.PI_ARTIFACTS_NODE;
+		expect(nodeBinary()).toMatch(/node/);
+		expect(Array.isArray(nodeTsFlags())).toBe(true);
+	});
+});

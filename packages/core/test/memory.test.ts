@@ -68,3 +68,13 @@ describe("normalizeMcpToolName", () => {
 		expect(normalizeMcpToolName(...args)).toBe(expected);
 	});
 });
+
+import { mcpCacheKey, stableStringify } from "../src/bridge.ts";
+
+describe("mcpCacheKey", () => {
+	it("ignores key order and undefined values", () => {
+		expect(stableStringify({ b: 1, a: [{ d: 2, c: undefined }] })).toBe('{"a":[{"d":2}],"b":1}');
+		expect(mcpCacheKey("art", "mcp__x__y", { q: 1, p: 2 })).toBe(mcpCacheKey("art", "mcp__x__y", { p: 2, q: 1 }));
+		expect(mcpCacheKey("art", "mcp__x__y", undefined)).toBe('art mcp__x__y {}');
+	});
+});

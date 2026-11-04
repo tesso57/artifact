@@ -13,7 +13,7 @@ export interface ToolRunner {
 	): Promise<{ isError: boolean; result: { content?: unknown[]; structuredContent?: unknown } }>;
 }
 
-export interface BridgeOptions {
+interface BridgeOptions {
 	/** Latest tool context captured from an artifact tool call, if any. */
 	getRunner(): ToolRunner | undefined;
 	/** Every MCP tool known to pi, used for listing before a runner exists. */
@@ -34,7 +34,7 @@ function toInfo(t: { name: string; description: string; parameters: unknown }): 
 	return { name: t.name, ...parts, description: t.description, inputSchema: t.parameters };
 }
 
-export function textOf(content: unknown[] | undefined): string {
+function textOf(content: unknown[] | undefined): string {
 	return (content ?? [])
 		.filter((b): b is { type: "text"; text: string } => (b as { type?: string })?.type === "text")
 		.map((b) => b.text)
@@ -46,7 +46,7 @@ export function textOf(content: unknown[] | undefined): string {
  * as their `structuredContent`. Use the server's own `structuredContent` when it sent one, else
  * JSON-looking text.
  */
-export function parseData(text: string, structured: unknown): unknown {
+function parseData(text: string, structured: unknown): unknown {
 	if (structured && typeof structured === "object" && Array.isArray((structured as { content?: unknown }).content)) {
 		const inner = (structured as { structuredContent?: unknown }).structuredContent;
 		if (inner !== undefined) return inner;
@@ -90,7 +90,7 @@ function tokenMatches(given: string | string[] | undefined, expected: string): b
  * not reach pi's bash/edit/write tools. Calls go through `ctx.executeTool`, so
  * pi's hooks and permission gates apply to them like model-issued calls.
  */
-export function createBridgeHandler(token: string, opts: BridgeOptions) {
+function createBridgeHandler(token: string, opts: BridgeOptions) {
 	return async (req: IncomingMessage, res: ServerResponse) => {
 		try {
 			if (!tokenMatches(req.headers[BRIDGE_TOKEN_HEADER], token)) return send(res, 401, { error: "Unauthorized" });

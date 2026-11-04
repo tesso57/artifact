@@ -3,6 +3,7 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, Code2, Database, Eye } from "lucide-react";
 import { Suspense, useCallback, useState } from "react";
 import { ArtifactErrorBoundary, ErrorPanel } from "@/components/artifact-error";
+import { ExportButton } from "@/components/export-button";
 import { McpBadge } from "@/components/mcp-badge";
 import { MemoryTable } from "@/components/memory-table";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -60,6 +61,7 @@ function ArtifactPage() {
 							<Database /> <span className="hidden sm:inline">Memory</span>
 						</TabsTrigger>
 					</TabsList>
+					<ExportButton id={meta.id} />
 					<McpBadge />
 					<ThemeToggle />
 				</header>

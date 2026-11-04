@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ArtifactsRuntime } from "../runtime.ts";
 
-export type MemoryAction = "list" | "get" | "set" | "delete";
+type MemoryAction = "list" | "get" | "set" | "delete";
 
 /** Run one artifact_memory action; pure so it can be tested against an in-memory db. */
 export function runMemoryAction(

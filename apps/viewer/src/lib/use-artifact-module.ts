@@ -1,6 +1,6 @@
 import { type ComponentType, useEffect, useState } from "react";
 
-export type LoadedArtifact =
+type LoadedArtifact =
 	| { status: "loading" }
 	| { status: "ready"; Component: ComponentType }
 	| { status: "error"; error: unknown };

@@ -2,9 +2,9 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
-import { VIEWER_DIR } from "@pi-artifacts/core";
+import { nodeBinary, VIEWER_DIR } from "@pi-artifacts/core";
 
-export interface ViewerOptions {
+interface ViewerOptions {
 	port?: number;
 	env?: Record<string, string>;
 	onLog?: (line: string) => void;
@@ -77,7 +77,7 @@ export class Viewer {
 
 	private async start(): Promise<string> {
 		const port = await findFreePort(this.opts.port ?? 5178);
-		const child = spawn(process.execPath, [viteBin(), "dev", "--port", String(port), "--strictPort"], {
+		const child = spawn(nodeBinary(), [viteBin(), "dev", "--port", String(port), "--strictPort"], {
 			cwd: VIEWER_DIR,
 			env: { ...process.env, ...this.opts.env, PORT: String(port), FORCE_COLOR: "0" },
 			stdio: ["ignore", "pipe", "pipe"],

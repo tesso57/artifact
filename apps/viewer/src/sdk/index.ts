@@ -13,15 +13,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@ta
 // Browser-safe subpath: the package root also exports Node-only modules.
 import { normalizeMcpToolName } from "@pi-artifacts/core/bridge";
 import { useCallback, useContext, useMemo, useRef } from "react";
-import {
-	mcpCallFn,
-	mcpListToolsFn,
-	mcpStatusFn,
-	memoryDeleteFn,
-	memoryGetFn,
-	memoryListFn,
-	memorySetFn,
-} from "../server/fns";
+import { backend } from "@/sdk/backend";
 import { ArtifactContext } from "./context";
 
 export { type ArtifactInfo, useArtifact } from "./context";
@@ -47,20 +39,14 @@ const memoryKey = (scope: string, key: string) => ["pi-memory", scope, key] as c
 
 /** Imperative memory API. `scope` is required outside of hooks. */
 export const memory = {
-	async get<T>(scope: string, key: string): Promise<T | undefined> {
-		const { value } = await memoryGetFn({ data: { scope, key } });
-		return (value ?? undefined) as T | undefined;
-	},
-	async set(scope: string, key: string, value: unknown): Promise<void> {
-		await memorySetFn({ data: { scope, key, value } });
-	},
-	async delete(scope: string, key: string): Promise<boolean> {
-		return (await memoryDeleteFn({ data: { scope, key } })).deleted;
-	},
-	async list(scope: string, prefix?: string) {
-		return memoryListFn({ data: { scope, prefix } });
-	},
+	get: <T>(scope: string, key: string) => backend.memoryGet(scope, key) as Promise<T | undefined>,
+	set: (scope: string, key: string, value: unknown) => backend.memorySet(scope, key, value),
+	delete: (scope: string, key: string) => backend.memoryDelete(scope, key),
+	list: (scope: string, prefix?: string) => backend.memoryList(scope, prefix),
 };
+
+/** "live" in the viewer, "static" in an exported HTML file (memory in localStorage, MCP from a snapshot). */
+export const runtimeMode = backend.mode;
 
 /**
  * Persistent state, like `useState` but stored in SQLite.
@@ -121,19 +107,19 @@ export async function callMcp<T = unknown>(
 	args: Record<string, unknown> = {},
 	options: { artifactId?: string } = {},
 ) {
-	const result = await mcpCallFn({ data: { name: normalizeMcpToolName(name), args, artifactId: options.artifactId } });
+	const result = await backend.mcpCall(normalizeMcpToolName(name), args, options.artifactId);
 	if (result.isError) throw new Error(result.text || `MCP tool ${name} failed`);
 	return { ...result, data: result.data as T };
 }
 
 /** Status of the bridge to pi (`connected`) and whether it can run tools yet (`ready`). */
 export function useMcpStatus() {
-	return useQuery({ queryKey: ["pi-mcp-status"], queryFn: () => mcpStatusFn(), refetchInterval: 5000 });
+	return useQuery({ queryKey: ["pi-mcp-status"], queryFn: () => backend.mcpStatus(), refetchInterval: 5000 });
 }
 
 /** MCP tools pi can call right now. */
 export function useMcpTools() {
-	return useQuery({ queryKey: ["pi-mcp-tools"], queryFn: () => mcpListToolsFn(), staleTime: 30_000 });
+	return useQuery({ queryKey: ["pi-mcp-tools"], queryFn: () => backend.mcpTools(), staleTime: 30_000 });
 }
 
 /**

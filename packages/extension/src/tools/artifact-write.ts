@@ -6,7 +6,7 @@ import { ARTIFACT_GUIDELINES } from "../prompt.ts";
 import type { ArtifactsRuntime } from "../runtime.ts";
 import { checkModule } from "../viewer.ts";
 
-export interface WriteDetails {
+interface WriteDetails {
 	id: string;
 	title: string;
 	url?: string;

@@ -117,6 +117,16 @@ try {
 	const memText = mem.content[0].text;
 	console.log("artifact_memory:", memText.replace(/\s+/g, " "));
 	if (!memText.includes("ip olleh")) throw new Error("memory not visible to the agent");
+
+	// Export to one HTML file; it embeds memory and the MCP results the viewer cached.
+	faux.setResponses([
+		fauxAssistantMessage(fauxToolCall("artifact_export", { id, path: "demo.html" })),
+		fauxAssistantMessage("ok"),
+	]);
+	await session.prompt("Export it");
+	const html = readFileSync(join(cwd, "demo.html"), "utf8");
+	if (!html.includes("ip olleh") || !html.includes('\\"stars\\":1234')) throw new Error("export lacks memory or MCP snapshot");
+	console.log(`artifact_export: ${(html.length / 1024).toFixed(0)} KB with memory + MCP snapshot`);
 	console.log("\nE2E OK");
 } catch (error) {
 	failed = true;

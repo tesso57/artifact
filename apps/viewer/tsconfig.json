@@ -9,5 +9,5 @@
       "@pi/artifact": ["./src/sdk/index.ts"]
     }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "test", "scripts", "vite.config.ts"]
 }

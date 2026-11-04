@@ -10,10 +10,12 @@
     "dev": "npm -w @pi-artifacts/viewer run dev",
     "test": "vitest --run",
     "typecheck": "tsc -p apps/viewer --noEmit && tsc -p packages/extension --noEmit",
-    "test:e2e": "node test/e2e/run.ts"
+    "test:e2e": "node test/e2e/run.ts",
+    "knip": "knip"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "knip": "^5.88.1",
     "typescript": "^5.9.3",
     "vitest": "^5.1.0"
   },

@@ -1,8 +1,6 @@
 import { basename, dirname, relative, sep } from "node:path";
 import type { Plugin } from "vite";
-
-/** Custom HMR events the viewer listens to. */
-export const ARTIFACTS_CHANGED_EVENT = "pi-artifacts:changed";
+import { ARTIFACTS_CHANGED_EVENT } from "./events.ts";
 
 /**
  * Watches the artifacts directory and tells open pages when an artifact is

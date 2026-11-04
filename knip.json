@@ -7,7 +7,8 @@
       ],
       "ignoreDependencies": [
         "@earendil-works/pi-coding-agent",
-        "@earendil-works/pi-ai"
+        "@earendil-works/pi-ai",
+        "@pi-artifacts/core"
       ]
     },
     "apps/viewer": {
@@ -18,10 +19,8 @@
         "src/export/static-backend.ts",
         "scripts/export.ts",
         "src/components/ui/*.tsx",
-        "src/sdk/index.ts"
-      ],
-      "ignoreDependencies": [
-        "recharts"
+        "src/sdk/index.ts",
+        "src/components/blocks/index.ts"
       ]
     },
     "packages/extension": {
@@ -31,6 +30,9 @@
       ],
       "ignoreDependencies": [
         "vite"
+      ],
+      "ignore": [
+        "skills/**/templates/**"
       ]
     },
     "packages/core": {

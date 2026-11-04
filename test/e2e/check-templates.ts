@@ -2,16 +2,17 @@
  * Render every skill template as a real artifact and fail on compile or page errors.
  *   node test/e2e/check-templates.ts [screenshot-dir]
  */
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { launchBrowser } from "./browser.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const templatesDir = resolve(here, "../../packages/extension/skills/artifacts/templates");
 process.env.PI_ARTIFACTS_DIR ??= mkdtempSync(join(tmpdir(), "pi-artifacts-templates-"));
 const shots = process.argv[2];
+if (shots) mkdirSync(shots, { recursive: true });
 
 const { artifactModuleUrl, VIEWER_DIR, writeArtifact } = await import("@pi-artifacts/core");
 const { Viewer, checkModule } = await import("../../packages/extension/src/viewer.ts");
@@ -27,8 +28,7 @@ const viewer = new Viewer({ port: 5260 });
 const failures: string[] = [];
 try {
 	const base = await viewer.ensure();
-	const { chromium } = createRequire("/opt/node22/lib/node_modules/")("playwright");
-	const browser = await chromium.launch();
+	const browser = await launchBrowser();
 	for (const file of templates) {
 		const id = `template-${file}`;
 		const compileError = await checkModule(base, artifactModuleUrl(id, VIEWER_DIR));

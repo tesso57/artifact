@@ -14,7 +14,7 @@ import type { ArtifactsRuntime } from "../runtime.ts";
 import { checkModule } from "../viewer.ts";
 
 /** Templates shipped with the artifacts skill. */
-export const BUNDLED_TEMPLATES_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../skills/artifacts/templates");
+const BUNDLED_TEMPLATES_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../skills/artifacts/templates");
 
 type Params = {
 	action: "list" | "get" | "save" | "delete";

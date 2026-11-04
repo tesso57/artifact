@@ -5,10 +5,10 @@
  * MCP server through pi and stores data in SQLite memory.
  */
 import { mkdtempSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { launchBrowser } from "./browser.ts";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import {
 	createAgentSession,
@@ -81,8 +81,7 @@ try {
 	const url = /URL: (\S+)/.exec(text)?.[1];
 	if (!url) throw new Error("no URL");
 
-	const { chromium } = createRequire("/opt/node22/lib/node_modules/")("playwright");
-	const browser = await chromium.launch();
+	const browser = await launchBrowser();
 	const page = await browser.newPage({ viewport: { width: 1100, height: 650 }, deviceScaleFactor: 2 });
 	const errors: string[] = [];
 	page.on("pageerror", (e: Error) => errors.push(e.message));

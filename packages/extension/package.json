@@ -1,0 +1,22 @@
+{
+  "name": "@pi-artifacts/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "pi extension: build live React artifacts (TanStack Start + shadcn/ui) with SQLite memory and MCP access",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@pi-artifacts/core": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "typebox": "^1.4.4"
+  }
+}

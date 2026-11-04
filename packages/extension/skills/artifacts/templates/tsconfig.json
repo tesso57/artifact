@@ -1,0 +1,11 @@
+{
+  "extends": "../../../../../apps/viewer/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../../../../../apps/viewer",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@pi/artifact": ["./src/sdk/index.ts"]
+    }
+  },
+  "include": ["*/template.tsx"]
+}

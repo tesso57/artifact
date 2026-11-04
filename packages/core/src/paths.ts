@@ -16,3 +16,8 @@ export function artifactsDir(): string {
 export function memoryDbPath(): string {
 	return process.env.PI_ARTIFACTS_DB ?? resolve(artifactsDir(), ".memory.sqlite");
 }
+
+/** User design system: `theme.css` (token overrides) and `DESIGN.md` (decisions). */
+export function designDir(): string {
+	return process.env.PI_ARTIFACTS_DESIGN ?? resolve(artifactsDir(), ".design");
+}

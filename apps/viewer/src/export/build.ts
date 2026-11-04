@@ -7,7 +7,7 @@
  */
 import { writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { artifactPaths, getMemory, MCP_CACHE_SCOPE, type McpCallResult, readMeta, VIEWER_DIR } from "@pi-artifacts/core";
+import { artifactPaths, designDir, getMemory, MCP_CACHE_SCOPE, type McpCallResult, readMeta, VIEWER_DIR } from "@pi-artifacts/core";
 import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";
 import { build, type Plugin, type Rollup } from "vite";
@@ -92,7 +92,7 @@ export async function exportArtifact(id: string, outFile?: string): Promise<Expo
 			{ find: /^@\/sdk\/backend$/, replacement: resolve(VIEWER_DIR, "src/export/static-backend.ts") },
 		]),
 		// Tailwind only needs to see this artifact (plus the viewer's own sources).
-		plugins: [entryPlugin(entry), piArtifactsPlugin({ dir }), tailwindcss(), viteReact()],
+		plugins: [entryPlugin(entry), piArtifactsPlugin({ dir, designDir: designDir() }), tailwindcss(), viteReact()],
 		build: {
 			write: false,
 			outDir: resolve(dirname(entry), ".export"),

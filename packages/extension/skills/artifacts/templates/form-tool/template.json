@@ -1,0 +1,6 @@
+{
+  "title": "Form tool with memory",
+  "description": "A small personal tool: add items in a dialog, toggle them, track progress; everything persists in memory.",
+  "useCases": ["checklists, trackers and to-do style tools", "collect and keep small structured entries", "forms whose results should survive reloads"],
+  "tags": ["form", "memory", "tracker", "dialog"]
+}

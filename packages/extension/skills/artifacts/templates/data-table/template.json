@@ -1,0 +1,15 @@
+{
+  "title": "Data table",
+  "description": "Searchable, sortable, paginated records (DataTable block) with a remembered toolbar filter and a detail dialog on row click.",
+  "useCases": [
+    "browse, search and sort a list of records",
+    "admin list of users, issues, orders or files",
+    "pick rows to act on"
+  ],
+  "tags": [
+    "table",
+    "list",
+    "search",
+    "crud"
+  ]
+}

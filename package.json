@@ -9,9 +9,10 @@
   "scripts": {
     "dev": "npm -w @pi-artifacts/viewer run dev",
     "test": "vitest --run",
-    "typecheck": "tsc -p apps/viewer --noEmit && tsc -p packages/extension --noEmit",
+    "typecheck": "tsc -p apps/viewer --noEmit && tsc -p packages/extension --noEmit && tsc -p packages/core --noEmit && tsc -p packages/extension/skills/artifacts/templates --noEmit",
     "test:e2e": "node test/e2e/run.ts",
-    "knip": "knip"
+    "knip": "knip",
+    "check:templates": "node test/e2e/check-templates.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

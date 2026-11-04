@@ -1,0 +1,6 @@
+{
+  "title": "MCP explorer",
+  "description": "Lists the MCP tools pi is connected to and runs one with JSON arguments, with loading, error and offline states.",
+  "useCases": ["try out or debug MCP servers", "starting point for an artifact driven by MCP data", "show what an MCP tool returns"],
+  "tags": ["mcp", "debug", "tools"]
+}

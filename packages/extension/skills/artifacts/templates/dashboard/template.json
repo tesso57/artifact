@@ -1,0 +1,6 @@
+{
+  "title": "KPI dashboard",
+  "description": "Stat cards with deltas, an area chart over time, a sortable top-N table and a remembered date range.",
+  "useCases": ["business or product metrics overview", "daily/weekly KPIs with a trend chart", "any 'how are we doing' summary page"],
+  "tags": ["dashboard", "chart", "table", "kpi"]
+}

@@ -6,6 +6,12 @@ Live, interactive **React artifacts** for the [pi coding agent](https://pi.dev).
 Ask pi for a dashboard, a tool or a prototype; it writes a TSX component and you get a
 link that hot-reloads as the agent iterates.
 
+| KPI dashboard (dark) | Data table (light) |
+|---|---|
+| ![KPI dashboard template in dark mode: stat cards, an area chart and a sortable table](docs/images/dashboard-dark.png) | ![Data table template: search, role filter, sortable columns and pagination](docs/images/data-table-light.png) |
+
+<sub>Two of the bundled templates, as the viewer renders them. The [style guide](docs/images/style-guide-light.png) shows every token and component.</sub>
+
 - **One viewer, many artifacts** — a per-user daemon runs a single TanStack Start (Vite)
   dev server; every artifact is a route (`/a/<id>`) with HMR. No iframes: artifacts are
   real modules.

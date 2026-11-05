@@ -4,13 +4,37 @@
   "description": "Live React artifacts for the pi coding agent: shadcn/ui + TanStack, SQLite memory, MCP access, single-file HTML export, skills and templates",
   "license": "MIT",
   "type": "module",
-  "keywords": ["pi-package", "pi", "artifacts", "tanstack", "shadcn"],
-  "repository": { "type": "git", "url": "git+https://github.com/tesso57/artifact.git" },
-  "pi": {
-    "extensions": ["./extension/index.ts"],
-    "skills": ["./skills"]
+  "keywords": [
+    "pi-package",
+    "pi",
+    "artifacts",
+    "tanstack",
+    "shadcn"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tesso57/artifact.git"
   },
-  "files": ["extension", "shared", "skills", "viewer/server", "viewer/src", "viewer/vite.config.ts", "viewer/tsconfig.json", "tsconfig.base.json", "README.md"],
+  "pi": {
+    "extensions": [
+      "./extension/index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "files": [
+    "extension",
+    "shared",
+    "skills",
+    "viewer/server",
+    "viewer/src",
+    "viewer/vite.config.ts",
+    "viewer/tsconfig.json",
+    "tsconfig.base.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "node viewer/server/daemon.ts --foreground",
     "test": "vitest --run",

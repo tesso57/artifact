@@ -65,6 +65,8 @@ export class DaemonContext {
 	onShutdown: () => void = () => process.exit(0);
 	/** One-time login tokens (in links given to people) → expiry and where they lead. */
 	private links = new Map<string, { exp: number; next: string }>();
+	/** Used tokens → destination, so a signed-in browser clicking a link again still gets there. */
+	private spentLinks = new Map<string, { exp: number; next: string }>();
 	/** Browser sessions (cookie values) → expiry. Distinct from the API secret. */
 	private browserSessions = new Map<string, number>();
 	private errors = new Map<string, RuntimeError[]>();
@@ -91,6 +93,7 @@ export class DaemonContext {
 		return `http://127.0.0.1:${this.port}`;
 	}
 
+	/** Record activity that should keep the daemon from its idle exit. */
 	touch(): void {
 		this.lastActivity = Date.now();
 	}
@@ -103,7 +106,16 @@ export class DaemonContext {
 	}
 
 	private pruneLinks(now = Date.now()) {
-		for (const [t, l] of this.links) if (l.exp < now) this.links.delete(t);
+		for (const map of [this.links, this.spentLinks]) for (const [t, l] of map) if (l.exp < now) map.delete(t);
+	}
+
+	/** Use up a token (if still unused) and return where it leads. */
+	private spend(token: string): { exp: number; next: string } | undefined {
+		const link = this.links.get(token);
+		if (!link) return undefined;
+		this.links.delete(token);
+		this.spentLinks.set(token, link);
+		return link;
 	}
 
 	/**
@@ -117,10 +129,14 @@ export class DaemonContext {
 		return `${this.origin}/__pi/login?t=${token}`;
 	}
 
-	/** Where a link token leads, if it is valid (does not use it up). */
-	linkTarget(token: string | null): string | undefined {
+	/**
+	 * For a browser that is already signed in: use the token up (so the link can no longer
+	 * sign anyone else in) and return where it leads — also for links used before.
+	 */
+	followLink(token: string | null): string | undefined {
 		this.pruneLinks();
-		return token ? this.links.get(token)?.next : undefined;
+		if (!token) return undefined;
+		return (this.spend(token) ?? this.spentLinks.get(token))?.next;
 	}
 
 	/**
@@ -130,9 +146,8 @@ export class DaemonContext {
 	login(token: string | null): { session: string; next: string } | undefined {
 		const now = Date.now();
 		this.pruneLinks(now);
-		const link = token ? this.links.get(token) : undefined;
-		if (!token || !link) return undefined;
-		this.links.delete(token);
+		const link = token ? this.spend(token) : undefined;
+		if (!link) return undefined;
 		const session = randomBytes(24).toString("base64url");
 		this.browserSessions.set(session, now + BROWSER_SESSION_TTL_MS);
 		return { session, next: link.next };
@@ -249,6 +264,7 @@ export class DaemonContext {
 	/** Validate a memory scope; reads of "shared" by an artifact are recorded for exports. */
 	scope(scope: unknown, from?: unknown, key?: string): string {
 		if (!isValidId(scope)) throw new Error(`Invalid memory scope ${JSON.stringify(scope)}`);
+		// ("*" in shared_reads means "listed every shared key"; it is rejected as a real key.)
 		if (scope === SHARED_SCOPE && isValidId(from)) this.memory.noteSharedRead(from, key ?? "*");
 		return scope;
 	}

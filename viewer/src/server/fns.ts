@@ -64,7 +64,9 @@ export const reportErrorFn = createServerFn({ method: "POST" })
 type Scoped = { scope: string; key: string; from?: string };
 
 function scoped<T extends { key: unknown }>(d: T): T & { key: string } {
-	if (typeof d.key !== "string" || d.key.length === 0 || d.key.length > 512) throw new Error("Memory keys are non-empty strings (max 512)");
+	if (typeof d.key !== "string" || d.key.length === 0 || d.key.length > 512 || d.key === "*") {
+		throw new Error('Memory keys are non-empty strings (max 512), not "*"');
+	}
 	return d as T & { key: string };
 }
 

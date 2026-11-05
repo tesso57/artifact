@@ -63,6 +63,11 @@ describe("guard", () => {
 		// ...but a browser that is already signed in is simply sent on (clicking it again).
 		const again = await fetch(link, { redirect: "manual", headers: cookie() });
 		expect(again.status).toBe(302);
+		expect(again.headers.get("location")).toBe("/a/x");
+		// A fresh link opened by a signed-in browser is used up too: it cannot sign others in.
+		const fresh = new URL(ctx.link("/a/y"));
+		expect((await fetch(fresh, { redirect: "manual", headers: cookie() })).headers.get("location")).toBe("/a/y");
+		expect((await fetch(fresh, { redirect: "manual" })).status).toBe(401);
 		expect((await fetch(`${base}/__pi/login?t=bogus`, { redirect: "manual" })).status).toBe(401);
 		// The master secret is not a login token.
 		expect((await fetch(`${base}/__pi/login?t=${ctx.secret}`, { redirect: "manual" })).status).toBe(401);

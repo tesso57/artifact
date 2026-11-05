@@ -68,7 +68,6 @@ function sameOrigin(req: IncomingMessage, ctx: DaemonContext): boolean {
 
 export function guardMiddleware(ctx: DaemonContext): Connect.NextHandleFunction {
 	return (req, res, next) => {
-		ctx.touch();
 		res.setHeader("content-security-policy", contentSecurityPolicy(ctx));
 		res.setHeader("x-content-type-options", "nosniff");
 		res.setHeader("referrer-policy", "no-referrer");
@@ -77,8 +76,11 @@ export function guardMiddleware(ctx: DaemonContext): Connect.NextHandleFunction 
 		// Vite's open-in-editor endpoint would let page scripts open files in the user's editor.
 		if (path.startsWith("/__open-in-editor")) return send(res, 403, { error: "Forbidden" });
 		if (ctx.isSecret(req.headers[DAEMON_SECRET_HEADER])) return next();
+		// The open-tab banner polls this; it must not keep an idle daemon alive.
 		if (path === "/__pi/session") return send(res, ctx.browserSession(cookie(req, ctx.cookieName)) ? 200 : 401, {});
+		if (ctx.isSecret(req.headers[DAEMON_SECRET_HEADER])) ctx.touch();
 		if (ctx.browserSession(cookie(req, ctx.cookieName)) && !path.startsWith("/__pi/api/")) {
+			ctx.touch();
 			if (req.method !== "GET" && req.method !== "HEAD" && !sameOrigin(req, ctx)) {
 				return send(res, 403, { error: "Cross-origin request refused" });
 			}
@@ -149,7 +151,8 @@ const routes: Record<string, Handler> = {
 	"POST /memory": (ctx, body: { action: string; scope: string; key?: string; value?: unknown }) => {
 		const scope = ctx.scope(body.scope);
 		const key = () => {
-			if (!body.key) throw new Error(`"key" is required for ${body.action}`);
+			if (typeof body.key !== "string" || !body.key) throw new Error(`"key" is required for ${body.action}`);
+			if (body.key === "*") throw new Error('"*" cannot be a memory key');
 			return body.key;
 		};
 		switch (body.action) {
@@ -202,7 +205,7 @@ export function apiMiddleware(ctx: DaemonContext): Connect.NextHandleFunction {
 			res.statusCode = 302;
 			if (ctx.browserSession(cookie(req, ctx.cookieName))) {
 				// Already signed in (e.g. the same link clicked again): just go there.
-				res.setHeader("location", ctx.linkTarget(token) ?? "/");
+				res.setHeader("location", ctx.followLink(token) ?? "/");
 				return res.end();
 			}
 			const login = ctx.login(token);

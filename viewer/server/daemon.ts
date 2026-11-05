@@ -13,7 +13,7 @@ import type { AddressInfo } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { createServer } from "vite";
 import { daemonStatePath, PACKAGE_ROOT, runtimeDir, stateDir } from "../../shared/paths.ts";
-import { type DaemonState, PROTOCOL_VERSION } from "../../shared/protocol.ts";
+import { DAEMON_SECRET_HEADER, type DaemonState, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import { DaemonContext } from "./context.ts";
 import { VIEWER_DIR } from "./vite-shared.ts";
 
@@ -30,8 +30,20 @@ function alive(pid: number): boolean {
 	}
 }
 
+/** Whether `pid` is the live, answering viewer daemon (not a stranger that reused the PID). */
+async function ownerIsViewer(pid: number): Promise<boolean> {
+	try {
+		const state = JSON.parse(readFileSync(daemonStatePath(), "utf8")) as DaemonState;
+		if (state.pid !== pid) return false;
+		const res = await fetch(`${state.url}/__pi/api/health`, { headers: { [DAEMON_SECRET_HEADER]: state.secret }, signal: AbortSignal.timeout(2000) });
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
 /** Exclusive lock so concurrent pi sessions never start two daemons. */
-function acquireLock(file: string): boolean {
+async function acquireLock(file: string): Promise<boolean> {
 	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
 			const fd = openSync(file, "wx");
@@ -41,7 +53,12 @@ function acquireLock(file: string): boolean {
 		} catch (e) {
 			if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
 			const owner = Number(readFileSync(file, "utf8"));
-			if (owner && alive(owner)) return false;
+			if (owner && alive(owner)) {
+				// A live owner may still be starting: give it time before calling the lock stale
+				// (after a crash or reboot the PID can belong to an unrelated process).
+				const lockAge = Date.now() - statSync(file).mtimeMs;
+				if (lockAge < 60_000 || (await ownerIsViewer(owner))) return false;
+			}
 			rmSync(file, { force: true }); // stale lock
 		}
 	}
@@ -54,7 +71,7 @@ try {
 	chmodSync(stateDir(), 0o700);
 } catch {}
 const lockFile = join(stateDir(), "viewer.lock");
-if (!acquireLock(lockFile)) {
+if (!(await acquireLock(lockFile))) {
 	console.log("pi-artifacts viewer is already running");
 	process.exit(0);
 }

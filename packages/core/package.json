@@ -1,9 +1,0 @@
-{
-  "name": "@pi-artifacts/core",
-  "private": true,
-  "type": "module",
-  "exports": {
-    ".": "./src/index.ts",
-    "./bridge": "./src/bridge.ts"
-  }
-}

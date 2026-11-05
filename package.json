@@ -1,23 +1,58 @@
 {
   "name": "pi-artifacts",
-  "private": true,
+  "version": "0.2.0",
+  "description": "Live React artifacts for the pi coding agent: shadcn/ui + TanStack, SQLite memory, MCP access, single-file HTML export, skills and templates",
+  "license": "MIT",
   "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "keywords": ["pi-package", "pi", "artifacts", "tanstack", "shadcn"],
+  "repository": { "type": "git", "url": "git+https://github.com/tesso57/artifact.git" },
+  "pi": {
+    "extensions": ["./extension/index.ts"],
+    "skills": ["./skills"]
+  },
+  "files": ["extension", "shared", "skills", "viewer/server", "viewer/src", "viewer/vite.config.ts", "viewer/tsconfig.json", "tsconfig.base.json", "README.md"],
   "scripts": {
-    "dev": "npm -w @pi-artifacts/viewer run dev",
+    "dev": "node viewer/server/daemon.ts --foreground",
     "test": "vitest --run",
-    "typecheck": "tsc -p apps/viewer --noEmit && tsc -p packages/extension --noEmit && tsc -p packages/core --noEmit && tsc -p packages/extension/skills/artifacts/templates --noEmit",
-    "test:e2e": "node test/e2e/run.ts",
+    "typecheck": "tsc -p viewer --noEmit && tsc -p extension --noEmit && tsc -p skills/artifacts/templates --noEmit",
     "knip": "knip",
-    "check:templates": "node test/e2e/check-templates.ts"
+    "check:templates": "node test/e2e/check-templates.ts",
+    "test:e2e": "node test/e2e/run.ts",
+    "test:pack": "node test/e2e/pack.ts"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.4",
+    "@tanstack/react-query": "^5.105.3",
+    "@tanstack/react-router": "^1.170.46",
+    "@tanstack/react-start": "^1.169.4",
+    "@tanstack/react-table": "^9.3.1",
+    "@vitejs/plugin-react": "^6.2.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.68.0",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "recharts": "^3.10.1",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.4",
+    "tw-animate-css": "^1.4.0",
+    "vite": "^8.3.5"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.5.0",
     "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "knip": "^5.88.1",
-    "playwright": "^1.63.0",
+    "playwright": "1.63.0",
+    "typebox": "^1.4.4",
     "typescript": "^5.9.3",
     "vitest": "^5.1.0"
   },

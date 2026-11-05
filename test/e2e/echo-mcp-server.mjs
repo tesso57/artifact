@@ -7,11 +7,18 @@ const tools = [
 		name: "reverse",
 		description: "Reverse a string",
 		inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+		annotations: { readOnlyHint: true },
 	},
 	{
 		name: "stats",
 		description: "Return fake repository stats as JSON",
 		inputSchema: { type: "object", properties: {} },
+		annotations: { readOnlyHint: true },
+	},
+	{
+		name: "note",
+		description: "Store a note (not read-only: artifacts need the user's approval)",
+		inputSchema: { type: "object", properties: { text: { type: "string" } } },
 	},
 ];
 
@@ -37,6 +44,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 			const { name, arguments: args = {} } = req.params;
 			if (name === "reverse") {
 				return send({ id: req.id, result: { content: [{ type: "text", text: [...String(args.text)].reverse().join("") }] } });
+			}
+			if (name === "note") {
+				return send({ id: req.id, result: { content: [{ type: "text", text: `noted: ${args.text}` }] } });
 			}
 			if (name === "stats") {
 				const data = { stars: 1234, issues: [{ day: "Mon", open: 4 }, { day: "Tue", open: 7 }, { day: "Wed", open: 3 }] };

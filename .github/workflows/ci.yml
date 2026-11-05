@@ -27,8 +27,21 @@ jobs:
       - run: npm test
       - run: npm run knip
 
+  windows:
+    name: Unit tests on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
   e2e:
-    name: Templates and end-to-end (pi + viewer + MCP + export)
+    name: Templates and end-to-end (pi sessions + daemon + MCP + export)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,15 +51,34 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - name: Render every skill template (light + dark)
+      - name: Render every bundled template (light + dark)
         run: npm run check:templates -- "$RUNNER_TEMP/screenshots"
-      - name: Real pi session drives an artifact through MCP, memory and export
+      - name: Real pi sessions drive artifacts through the viewer daemon
         run: npm run test:e2e
         env:
           E2E_SCREENSHOT: ${{ runner.temp }}/screenshots/e2e.png
+      - name: Daemon log
+        if: failure()
+        run: cat /tmp/pi-artifacts-*/.state/viewer.log || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: screenshots
           path: ${{ runner.temp }}/screenshots
           if-no-files-found: ignore
+
+  install:
+    name: Install from npm pack and run e2e (package inside node_modules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:pack
+      - name: Daemon log
+        if: failure()
+        run: cat /tmp/pi-artifacts-*/.state/viewer.log || true

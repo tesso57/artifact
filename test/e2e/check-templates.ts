@@ -1,61 +1,52 @@
 /**
- * Render every skill template as a real artifact and fail on compile or page errors.
+ * Render every bundled template (at /t/<name>) in light and dark, through the real viewer
+ * daemon, and fail on load or render errors.
  *   node test/e2e/check-templates.ts [screenshot-dir]
  */
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { launchBrowser } from "./browser.ts";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const templatesDir = resolve(here, "../../packages/extension/skills/artifacts/templates");
 process.env.PI_ARTIFACTS_DIR ??= mkdtempSync(join(tmpdir(), "pi-artifacts-templates-"));
+process.env.PI_ARTIFACTS_PORT ??= "5410";
 const shots = process.argv[2];
 if (shots) mkdirSync(shots, { recursive: true });
 
-const { artifactModuleUrl, VIEWER_DIR, writeArtifact } = await import("@pi-artifacts/core");
-const { Viewer, checkModule } = await import("../../packages/extension/src/viewer.ts");
+const { DaemonClient } = await import("../../extension/daemon-client.ts");
+const { BUNDLED_TEMPLATES_DIR } = await import("../../shared/paths.ts");
 
-const templates = readdirSync(templatesDir, { withFileTypes: true })
+const templates = readdirSync(BUNDLED_TEMPLATES_DIR, { withFileTypes: true })
 	.filter((d) => d.isDirectory())
 	.map((d) => d.name);
-for (const name of templates) {
-	await writeArtifact({ id: `template-${name}`, title: name, code: readFileSync(join(templatesDir, name, "template.tsx"), "utf8") });
-}
-
-const viewer = new Viewer({ port: 5260 });
+const daemon = new DaemonClient();
 const failures: string[] = [];
+const browser = await launchBrowser();
 try {
-	const base = await viewer.ensure();
-	const browser = await launchBrowser();
-	for (const file of templates) {
-		const id = `template-${file}`;
-		const compileError = await checkModule(base, artifactModuleUrl(id, VIEWER_DIR));
-		if (compileError) {
-			failures.push(`${file}: ${compileError}`);
-			continue;
-		}
+	for (const name of templates) {
 		for (const theme of ["light", "dark"] as const) {
 			const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, colorScheme: theme });
 			const errors: string[] = [];
 			page.on("pageerror", (e: Error) => errors.push(e.message));
 			page.on("console", (m: { type(): string; text(): string }) => {
-				if (m.type() === "error" && !m.text().includes("MCP is unavailable")) errors.push(m.text());
+				// Templates without a pi session show MCP "offline" states; that is expected.
+				if (m.type() === "error" && !/No pi session|pi session is connected|MCP/.test(m.text())) errors.push(m.text());
 			});
-			await page.goto(`${base}/a/${id}`, { waitUntil: "networkidle" });
+			await page.goto(await daemon.link(`/t/${name}`), { waitUntil: "networkidle" });
 			await page.waitForTimeout(1200);
-			const crashed = await page.getByText(/failed to load|crashed while rendering/i).count();
-			if (crashed) errors.push(await page.innerText("main, body"));
-			if (shots) await page.screenshot({ path: join(shots, `${id}-${theme}.png`), fullPage: true });
+			if (await page.getByText(/The artifact failed to load|The artifact crashed while rendering|Could not load the template/).count()) errors.push(await page.innerText("body"));
+			if (shots) await page.screenshot({ path: join(shots, `template-${name}-${theme}.png`), fullPage: true });
 			await page.close();
-			if (errors.length) failures.push(`${file} (${theme}): ${errors.join(" | ").slice(0, 800)}`);
+			if (errors.length) failures.push(`${name} (${theme}): ${errors.join(" | ").slice(0, 800)}`);
 		}
-		console.log(`✓ ${file}`);
+		console.log(`✓ ${name}`);
 	}
-	await browser.close();
 } finally {
-	viewer.stop();
+	await browser.close();
+	try {
+		const state = JSON.parse(readFileSync(join(process.env.PI_ARTIFACTS_DIR, ".state", "viewer.json"), "utf8"));
+		await fetch(`${state.url}/__pi/api/shutdown`, { method: "POST", headers: { "x-pi-artifacts-secret": state.secret } });
+	} catch {}
 }
 if (failures.length) {
 	console.error(`\n${failures.length} problem(s):\n${failures.join("\n")}`);

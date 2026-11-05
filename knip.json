@@ -1,44 +1,29 @@
 {
-  "workspaces": {
-    ".": {
-      "ignore": [
-        "test/e2e/demo-artifact.tsx",
-        "test/e2e/echo-mcp-server.mjs"
-      ],
-      "ignoreDependencies": [
-        "@earendil-works/pi-coding-agent",
-        "@earendil-works/pi-ai",
-        "@pi-artifacts/core"
-      ]
-    },
-    "apps/viewer": {
-      "entry": [
-        "src/router.tsx",
-        "src/routes/**/*.tsx",
-        "src/export/entry.tsx",
-        "src/export/static-backend.ts",
-        "scripts/export.ts",
-        "src/components/ui/*.tsx",
-        "src/sdk/index.ts",
-        "src/components/blocks/index.ts"
-      ]
-    },
-    "packages/extension": {
-      "entry": [
-        "src/index.ts",
-        "test/**/*.ts"
-      ],
-      "ignoreDependencies": [
-        "vite"
-      ],
-      "ignore": [
-        "skills/**/templates/**"
-      ]
-    },
-    "packages/core": {
-      "entry": [
-        "test/**/*.ts"
-      ]
-    }
-  }
+  "entry": [
+    "extension/index.ts",
+    "viewer/server/export-worker.ts",
+    "viewer/vite.config.ts",
+    "viewer/src/router.tsx",
+    "viewer/src/routes/**/*.tsx",
+    "viewer/src/export/entry.tsx",
+    "viewer/src/export/static-backend.ts",
+    "viewer/src/sdk/index.ts",
+    "viewer/src/components/ui/*.tsx",
+    "viewer/src/components/blocks/index.ts",
+    "test/unit/**/*.test.ts",
+    "test/e2e/*.ts"
+  ],
+  "project": [
+    "extension/**/*.ts",
+    "shared/**/*.ts",
+    "viewer/**/*.{ts,tsx}",
+    "test/**/*.ts"
+  ],
+  "ignore": [
+    "viewer/src/routeTree.gen.ts"
+  ],
+  "ignoreDependencies": [
+    "tw-animate-css",
+    "tailwindcss"
+  ]
 }

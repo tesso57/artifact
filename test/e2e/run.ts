@@ -1,143 +1,156 @@
 /**
- * End-to-end check with a real pi session (faux model, real extension, real MCP server):
- *   node test/e2e/run.ts
- * The faux model calls artifact_write; then a browser opens the artifact, which calls the
- * MCP server through pi and stores data in SQLite memory.
+ * End-to-end: real pi SDK sessions (faux model) load this package like `pi install`, write an
+ * artifact, and a browser uses it through the per-user viewer daemon:
+ *   node test/e2e/run.ts            (this checkout)
+ *   PI_ARTIFACTS_PACKAGE=… node …   (an installed copy, see pack.ts)
  */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { launchBrowser } from "./browser.ts";
-import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import {
-	createAgentSession,
-	createMcpExtension,
-	DefaultResourceLoader,
-	SessionManager,
-	SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+import { openLink, startPi } from "./pi.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = resolve(here, "../..");
-const agentDir = mkdtempSync(join(tmpdir(), "pi-agent-"));
-// Keep test artifacts and memory out of ~/.pi/artifacts.
+// Keep test artifacts, memory and the daemon's state out of ~/.pi/artifacts.
 process.env.PI_ARTIFACTS_DIR ??= mkdtempSync(join(tmpdir(), "pi-artifacts-e2e-"));
-// A user design system: theme.css overrides must reach every artifact.
-const designDir = join(process.env.PI_ARTIFACTS_DIR, ".design");
-mkdirSync(designDir, { recursive: true });
-writeFileSync(join(designDir, "theme.css"), ":root { --radius: 0.1234rem; }\n");
-const cwd = mkdtempSync(join(tmpdir(), "pi-cwd-"));
+process.env.PI_ARTIFACTS_PORT ??= "5390";
+const dir = process.env.PI_ARTIFACTS_DIR;
+mkdirSync(join(dir, ".design"), { recursive: true });
+writeFileSync(join(dir, ".design", "theme.css"), ":root { --radius: 0.1234rem; }\n");
 
-const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
-const id = `e2e-mcp-demo`;
-faux.setResponses([
-	fauxAssistantMessage(
-		fauxToolCall("artifact_write", {
-			id,
-			title: "MCP demo",
-			description: "Chart + reverse via the echo MCP server",
-			code: readFileSync(join(here, "demo-artifact.tsx"), "utf8"),
-		}),
-	),
-	fauxAssistantMessage("Done — open the artifact."),
-]);
-
-// Load the extension and its skills like `pi install ./packages/extension` would.
-const settingsManager = SettingsManager.inMemory({ packages: [join(root, "packages/extension")] } as never);
-const resourceLoader = new DefaultResourceLoader({
-	cwd,
-	agentDir,
-	settingsManager,
-	extensionFactories: [
-		(pi) => {
-			pi.registerProvider(faux.provider as never);
-			pi.registerMcpServer("echo", { command: process.execPath, args: [join(here, "echo-mcp-server.mjs")] });
-		},
-		createMcpExtension(),
-	],
-});
-await resourceLoader.reload();
-const skills = resourceLoader.getSkills().skills.map((s) => s.name).sort();
-if (skills.join() !== "artifact-design-system,artifact-template-creator,artifacts") throw new Error(`skills: ${skills}`);
-
-const { session } = await createAgentSession({
-	cwd,
-	agentDir,
-	resourceLoader,
-	settingsManager,
-	sessionManager: SessionManager.inMemory(),
-});
-const model = session.modelRuntime?.getModel?.("faux", "faux-1") ?? faux.getModel();
-await session.setModel(model as never);
-await session.bindExtensions({});
-
+const step = (msg: string) => console.log(`✓ ${msg}`);
+const id = "e2e-mcp-demo";
+const demo = readFileSync(join(here, "demo-artifact.tsx"), "utf8");
 let failed = false;
-try {
-	await session.prompt("Build an MCP demo artifact");
-	if (process.env.E2E_DEBUG) {
-		await new Promise((r) => setTimeout(r, 3000));
-		console.log("ALL TOOLS:", (session as any).getAllTools?.().map((t: any) => `${t.name}:${t.exposure ?? ""}`).join(", "));
-		console.log("CALLABLE:", (session as any).getCallableToolNames?.()?.join(", "));
-		console.log("AGENT DIR mcp.log:", (() => { try { return readFileSync(join(agentDir, "mcp.log"), "utf8"); } catch { return "-"; } })());
-	}
-	const result = session.messages.findLast((m: any) => m.role === "toolResult" && m.toolName === "artifact_write") as any;
-	const text = result?.content?.map((c: any) => c.text).join("\n") ?? "";
-	console.log("artifact_write result:\n" + text);
-	if (result?.isError) throw new Error("artifact_write reported an error");
-	const url = /URL: (\S+)/.exec(text)?.[1];
-	if (!url) throw new Error("no URL");
+const first = await startPi();
+let second: Awaited<ReturnType<typeof startPi>> | undefined;
+const browser = await launchBrowser();
 
-	const browser = await launchBrowser();
+try {
+	if (first.skills.join() !== "artifact-design-system,artifact-template-creator,artifacts") throw new Error(`skills: ${first.skills}`);
+	step("package manifest loads the extension and 3 skills");
+
+	// 1. Write an artifact that uses MCP (allowlisted) and memory.
+	first.respond([
+		fauxAssistantMessage(fauxToolCall("artifact_write", { id, title: "MCP demo", description: "Chart + reverse via echo", code: demo, mcp: ["echo.*"] })),
+		fauxAssistantMessage("Done."),
+	]);
+	await first.prompt("Build an MCP demo artifact");
+	const write = first.lastResult("artifact_write");
+	if (write.isError) throw new Error(write.text);
+	step("artifact_write created the artifact and started the viewer daemon");
+
 	const page = await browser.newPage({ viewport: { width: 1100, height: 650 }, deviceScaleFactor: 2 });
-	const errors: string[] = [];
-	page.on("pageerror", (e: Error) => errors.push(e.message));
-	await page.goto(url, { waitUntil: "networkidle" });
+	const pageErrors: string[] = [];
+	page.on("pageerror", (e: Error) => pageErrors.push(e.message));
+	if (process.env.E2E_DEBUG) page.on("console", (m: any) => console.log("[console]", m.text().slice(0, 160)));
+	await page.goto(openLink(write.text), { waitUntil: "networkidle" });
 	await page
 		.getByText("★ 1234")
-		.waitFor({ timeout: 20000 })
+		.waitFor({ timeout: 30000 })
 		.catch(async (e: Error) => {
 			console.log("PAGE TEXT:", (await page.innerText("body")).slice(0, 1500));
 			throw e;
 		});
-	// Tailwind picked up the artifact's classes (two columns) and recharts drew bars.
 	await page.locator(".recharts-bar-rectangle").first().waitFor({ timeout: 10000 });
-	const boxes = await page.locator("[data-slot=card]").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
-	if (boxes.length !== 2 || Math.abs(boxes[0] - boxes[1]) > 2) throw new Error(`expected two cards side by side, got tops ${boxes}`);
+	const tops = await page.locator("[data-slot=card]").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+	if (tops.length !== 2 || Math.abs(tops[0] - tops[1]) > 2) throw new Error(`expected two cards side by side, got ${tops}`);
 	const radius = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--radius").trim());
 	if (radius !== "0.1234rem") throw new Error(`theme.css not applied (--radius: ${radius})`);
+	step("login link → page renders MCP data, Tailwind classes, recharts and theme.css");
+
 	await page.getByRole("button", { name: "Reverse" }).click();
 	await page.getByTestId("history").getByText("ip olleh").waitFor({ timeout: 20000 });
-	await page.waitForTimeout(800);
+	await page.waitForTimeout(500);
 	await page.screenshot({ path: process.env.E2E_SCREENSHOT ?? join(tmpdir(), "pi-artifacts-e2e.png") });
 	await page.reload({ waitUntil: "networkidle" });
 	await page.getByTestId("history").getByText("ip olleh").waitFor({ timeout: 20000 });
-	await browser.close();
-	if (errors.length) throw new Error(`page errors: ${errors.join("; ")}`);
+	step("MCP mutation + SQLite memory survive a reload");
 
-	// The agent sees what the artifact stored.
-	faux.setResponses([
-		fauxAssistantMessage(fauxToolCall("artifact_memory", { action: "get", scope: id, key: "history" })),
+	// 2. Runtime errors in an open tab come back to the agent.
+	first.respond([
+		fauxAssistantMessage(
+			fauxToolCall("artifact_write", { id, title: "MCP demo", code: 'export default function Broken() { throw new Error("boom from render"); }', mcp: ["echo.*"] }),
+		),
 		fauxAssistantMessage("ok"),
 	]);
-	await session.prompt("What did I reverse?");
-	const mem = session.messages.findLast((m: any) => m.role === "toolResult" && m.toolName === "artifact_memory") as any;
-	const memText = mem.content[0].text;
-	console.log("artifact_memory:", memText.replace(/\s+/g, " "));
-	if (!memText.includes("ip olleh")) throw new Error("memory not visible to the agent");
+	await first.prompt("Break it");
+	const broken = first.lastResult("artifact_write");
 
-	// Export to one HTML file; it embeds memory and the MCP results the viewer cached.
-	faux.setResponses([
-		fauxAssistantMessage(fauxToolCall("artifact_export", { id, path: "demo.html" })),
+
+	if (!broken.isError || !broken.text.includes("boom from render")) throw new Error(`runtime error not reported:\n${broken.text}`);
+	step("artifact_write returns runtime errors reported by the open tab");
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id, title: "MCP demo", code: demo, mcp: ["echo.*"] })), fauxAssistantMessage("ok")]);
+	await first.prompt("Fix it");
+	if (first.lastResult("artifact_write").isError) throw new Error(first.lastResult("artifact_write").text);
+	await page.getByText("★ 1234").waitFor({ timeout: 30000 });
+
+	// 3. The allowlist is enforced.
+	first.respond([
+		fauxAssistantMessage(
+			fauxToolCall("artifact_write", {
+				title: "No MCP",
+				code: 'import { useMcp } from "@pi/artifact";\nexport default function N() { const q = useMcp("echo.stats"); return <p data-testid="s">{q.error ? String(q.error.message) : q.isPending ? "…" : "ok"}</p>; }',
+			}),
+		),
 		fauxAssistantMessage("ok"),
 	]);
-	await session.prompt("Export it");
-	const html = readFileSync(join(cwd, "demo.html"), "utf8");
-	if (!html.includes("ip olleh") || !html.includes('\\"stars\\":1234')) throw new Error("export lacks memory or MCP snapshot");
-	console.log(`artifact_export: ${(html.length / 1024).toFixed(0)} KB with memory + MCP snapshot`);
+	await first.prompt("Write an artifact without an allowlist");
+	const noMcp = await browser.newPage();
+	await noMcp.goto(openLink(first.lastResult("artifact_write").text));
+	await noMcp.getByText(/not in this artifact's MCP allowlist/).waitFor({ timeout: 20000 });
+	await noMcp.close();
+	step("MCP calls outside the artifact's allowlist are refused");
 
-	// Templates: bundled ones are listed; a user template is saved, compiled and previewed.
-	faux.setResponses([
+	// Tools that are not read-only need approval; without a UI (this SDK session) it is declined.
+	first.respond([
+		fauxAssistantMessage(
+			fauxToolCall("artifact_write", {
+				title: "Writer",
+				mcp: ["echo.note"],
+				code: 'import { useMcp } from "@pi/artifact";\nexport default function W() { const q = useMcp("echo.note", { text: "x" }, { retry: false }); return <p>{q.error ? String(q.error.message) : q.isPending ? "…" : q.data?.text}</p>; }',
+			}),
+		),
+		fauxAssistantMessage("ok"),
+	]);
+	await first.prompt("Write an artifact that writes");
+	const writer = await browser.newPage();
+	await writer.goto(openLink(first.lastResult("artifact_write").text));
+	await writer.getByText(/declined mcp__echo__note/).waitFor({ timeout: 20000 });
+	await writer.close();
+	step("non-read-only MCP tools need approval (declined without a UI)");
+
+	// 4. The agent reads what the artifact stored.
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_memory", { action: "get", scope: id, key: "history" })), fauxAssistantMessage("ok")]);
+	await first.prompt("What did I reverse?");
+	if (!first.lastResult("artifact_memory").text.includes("ip olleh")) throw new Error("memory not visible to the agent");
+	step("artifact_memory reads the artifact's memory");
+
+	// 5. Export: one file, embeds own memory and cached MCP results, reports what it embeds.
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_export", { id, path: "demo.html" })), fauxAssistantMessage("ok")]);
+	await first.prompt("Export it");
+	const exported = first.lastResult("artifact_export").text;
+	const html = readFileSync(join(first.cwd, "demo.html"), "utf8");
+	if (!html.includes("ip olleh") || !html.includes('\\"stars\\":1234') || !/1 memory key/.test(exported)) throw new Error(`export:\n${exported}`);
+	const offline = await browser.newPage();
+	const requests: string[] = [];
+	offline.on("request", (r: { url(): string }) => !/^(file|data|blob):/.test(r.url()) && requests.push(r.url()));
+	offline.on("console", (m: any) => process.env.E2E_DEBUG && console.log("[offline]", m.text().slice(0, 300)));
+	offline.on("pageerror", (e: Error) => process.env.E2E_DEBUG && console.log("[offline error]", e.message));
+	await offline.goto(`file://${join(first.cwd, "demo.html")}`);
+	if (process.env.E2E_DEBUG) {
+		await offline.waitForTimeout(2000);
+		console.log("OFFLINE:", (await offline.innerText("body")).slice(0, 500));
+	}
+	await offline.getByText("★ 1234").waitFor({ timeout: 10000 });
+	if (requests.length) throw new Error(`export made network requests: ${requests}`);
+	await offline.close();
+	step(`artifact_export: ${(html.length / 1024).toFixed(0)} KB, works offline from file://`);
+
+	// 6. Templates: list, save (compile-checked) and preview.
+	first.respond([
 		fauxAssistantMessage(fauxToolCall("artifact_template", { action: "list" })),
 		fauxAssistantMessage(
 			fauxToolCall("artifact_template", {
@@ -146,27 +159,47 @@ try {
 				title: "Hello",
 				description: "Says hello",
 				useCases: ["greet someone"],
-				code: "export default function Hello() { return <p>hello template</p>; }",
-				preview: true,
+				code: 'export default function Hello() { return <p className="text-[31px]">hello template</p>; }',
 			}),
 		),
 		fauxAssistantMessage("ok"),
 	]);
-	await session.prompt("Make a template");
-	const tplResults = session.messages.filter((m: any) => m.role === "toolResult" && m.toolName === "artifact_template") as any[];
-	const listed = JSON.parse(tplResults.at(-2).content[0].text).map((t: any) => t.name);
-	for (const n of ["dashboard", "data-table", "form-tool", "mcp-explorer", "style-guide"]) {
-		if (!listed.includes(n)) throw new Error(`bundled template ${n} missing: ${listed}`);
-	}
-	const saved = tplResults.at(-1).content[0].text as string;
-	if (tplResults.at(-1).isError || !/Preview: \S+\/a\/template-e2e-hello/.test(saved)) throw new Error(`template save: ${saved}`);
-	console.log(`artifact_template: ${listed.length} templates, saved + previewed e2e-hello`);
+	await first.prompt("Make a template");
+	const [listed, saved] = first.results("artifact_template").slice(-2);
+	const names = (JSON.parse(listed.text).templates as { name: string }[]).map((t) => t.name);
+	for (const n of ["dashboard", "data-table", "form-tool", "mcp-explorer", "style-guide"]) if (!names.includes(n)) throw new Error(`template ${n} missing: ${names}`);
+	const preview = await browser.newPage();
+	await preview.goto(openLink(saved.text, "Preview"));
+	await preview.getByText("hello template").waitFor({ timeout: 20000 });
+	await preview.close();
+	step(`artifact_template: ${names.length} templates; saved one renders at /t/e2e-hello`);
+
+	// 7. Sessions: a second pi session joins the same viewer; after the first quits, the
+	//    viewer keeps running and MCP is routed to the second session.
+	second = await startPi();
+	second.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id, title: "MCP demo", code: demo, mcp: ["echo.*"] })), fauxAssistantMessage("ok")]);
+	await second.prompt("Refresh the demo");
+	await first.close();
+	await page.reload({ waitUntil: "networkidle" });
+	await page.getByText("★ 1234").waitFor({ timeout: 30000 });
+	await page.getByRole("button", { name: "Reverse" }).click();
+	await page.waitForTimeout(1500);
+	if (pageErrors.length) throw new Error(`page errors: ${pageErrors.join("; ")}`);
+	step("viewer survives the first session; MCP routes to the second");
+
 	console.log("\nE2E OK");
 } catch (error) {
 	failed = true;
 	console.error("E2E FAILED:", error);
 } finally {
-	session.dispose();
-	await new Promise((r) => setTimeout(r, 300));
+	await browser.close().catch(() => {});
+	// Stop the daemon so the test leaves nothing running.
+	try {
+		const state = JSON.parse(readFileSync(join(dir, ".state", "viewer.json"), "utf8"));
+		await fetch(`${state.url}/__pi/api/shutdown`, { method: "POST", headers: { "x-pi-artifacts-secret": state.secret } });
+	} catch {}
+	await second?.close().catch(() => {});
+	await first.close().catch(() => {});
+	await new Promise((r) => setTimeout(r, 500));
 	process.exit(failed ? 1 : 0);
 }

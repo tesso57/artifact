@@ -10,6 +10,7 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": false,
     "types": ["node"]
   }

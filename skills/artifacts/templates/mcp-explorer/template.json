@@ -10,8 +10,5 @@
     "mcp",
     "debug",
     "tools"
-  ],
-  "mcp": [
-    "*"
   ]
 }

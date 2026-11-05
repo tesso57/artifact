@@ -7,13 +7,13 @@ const tools = [
 		name: "reverse",
 		description: "Reverse a string",
 		inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
-		annotations: { readOnlyHint: true },
+		annotations: { readOnlyHint: true, openWorldHint: false },
 	},
 	{
 		name: "stats",
 		description: "Return fake repository stats as JSON",
 		inputSchema: { type: "object", properties: {} },
-		annotations: { readOnlyHint: true },
+		annotations: { readOnlyHint: true, openWorldHint: false },
 	},
 	{
 		name: "note",

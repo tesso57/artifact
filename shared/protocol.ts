@@ -25,11 +25,14 @@ export interface McpCallResult {
 }
 
 export const BRIDGE_TOKEN_HEADER = "x-pi-artifacts-token";
+/** Bumped when the daemon API changes incompatibly; clients only use daemons with the same one. */
+export const PROTOCOL_VERSION = 1;
 export const DAEMON_SECRET_HEADER = "x-pi-artifacts-secret";
 export const SESSION_COOKIE = "pi_artifacts";
 
 /** Written by the daemon to `<state>/viewer.json`; the extension reads it to find the daemon. */
 export interface DaemonState {
+	protocol: number;
 	pid: number;
 	port: number;
 	url: string;
@@ -44,6 +47,10 @@ export interface SessionRegistration {
 	cwd: string;
 	bridgeUrl: string;
 	bridgeToken: string;
+	/** Whether the session can run tools (it captured a tool context). */
+	ready?: boolean;
+	/** MCP tools (`mcp__…`) the session has. */
+	tools?: string[];
 }
 
 /** Body the daemon sends to a session's bridge. */
@@ -71,6 +78,14 @@ export interface RuntimeError {
 	message: string;
 	stack?: string;
 	at: number;
+}
+
+/** Compare dotted versions numerically (`1.10.0` > `1.9.3`); pre-release tags are ignored. */
+export function compareVersions(a: string, b: string): number {
+	const pa = a.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
+	const pb = b.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
+	for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
+	return 0;
 }
 
 /** Split `mcp__<server>__<tool>` into its parts. */

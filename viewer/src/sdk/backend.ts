@@ -34,7 +34,10 @@ export interface Backend {
 
 export const backend: Backend = {
 	mode: "live",
-	memoryGet: async (scope, key, from) => (await memoryGetFn({ data: { scope, key, from } })).value ?? undefined,
+	memoryGet: async (scope, key, from) => {
+		const r = await memoryGetFn({ data: { scope, key, from } });
+		return r.found ? r.value : undefined;
+	},
 	memorySet: async (scope, key, value) => {
 		await memorySetFn({ data: { scope, key, value } });
 	},

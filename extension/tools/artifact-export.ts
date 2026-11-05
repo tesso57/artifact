@@ -33,11 +33,16 @@ export function registerArtifactExport(pi: ExtensionAPI, runtime: ArtifactsRunti
 		promptSnippet: "Export an artifact to a single self-contained HTML file",
 		parameters: Type.Object({
 			id: Type.String({ description: "Artifact id" }),
-			path: Type.Optional(Type.String({ description: "Output file; default <cwd>/<id>.html" })),
+			path: Type.Optional(Type.String({ description: "Output .html file; default <cwd>/<id>.html" })),
+			overwrite: Type.Optional(Type.Boolean({ description: "Replace the file if it exists (ask the user first)" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			runtime.captureToolContext(ctx);
-			const r = await runtime.daemon.api<ExportResponse>("/export", { id: params.id, outFile: exportTarget(ctx.cwd, params.id, params.path) });
+			const r = await runtime.daemon.api<ExportResponse>("/export", {
+				id: params.id,
+				outFile: exportTarget(ctx.cwd, params.id, params.path),
+				overwrite: params.overwrite === true,
+			});
 			return { content: [{ type: "text", text: formatExport(r) }], details: r };
 		},
 		renderResult(result, { isPartial }, theme) {

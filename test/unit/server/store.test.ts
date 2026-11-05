@@ -20,12 +20,13 @@ describe("slugify", () => {
 	});
 	it("falls back when nothing is left, and avoids reserved ids", () => {
 		expect(slugify("日本語だけ")).toMatch(/^artifact-[a-z0-9]+$/);
-		expect(slugify("Shared")).toBe("shared-artifact");
+		expect(slugify("Shared")).toBe("artifact-shared");
+		expect(slugify("Template MCP Explorer")).toBe("artifact-template-mcp-explorer");
 	});
 });
 
 describe("assertArtifactId", () => {
-	it.each(["../etc", "A", "", "-x", "a/b", "a".repeat(65), "shared", undefined, 3])("rejects %j", (id) => {
+	it.each(["../etc", "A", "", "-x", "a/b", "a".repeat(65), "shared", "template-x", undefined, 3])("rejects %j", (id) => {
 		expect(() => assertArtifactId(id)).toThrow();
 	});
 	it("accepts slugs", () => {

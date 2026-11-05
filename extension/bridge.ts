@@ -1,7 +1,9 @@
 /**
  * The MCP bridge: a loopback HTTP server inside pi that the viewer daemon calls to run
- * MCP tools for artifacts. Only `mcp__*` tools can be called; tools that are not marked
- * read-only need the user's approval once per artifact and tool (when a UI is present).
+ * MCP tools for artifacts. Only `mcp__*` tools can be called. A tool runs without asking
+ * only when its server marks it read-only *and* closed-world; anything else needs the
+ * user's approval once per tool in this session. (Approval is not keyed by artifact: all
+ * artifacts share one origin, so the calling artifact's id is a claim, not a proof.)
  * Calls go through `ctx.executeTool`, so pi's hooks and permission gates apply as well.
  */
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -29,7 +31,7 @@ export interface ToolListing {
 	name: string;
 	description: string;
 	parameters: unknown;
-	annotations?: { readOnlyHint?: boolean };
+	annotations?: { readOnlyHint?: boolean; openWorldHint?: boolean };
 }
 
 interface BridgeOptions {
@@ -52,6 +54,11 @@ function toInfo(t: ToolListing): McpToolInfo | undefined {
 	const parts = parseMcpToolName(t.name);
 	if (!parts) return undefined;
 	return { name: t.name, ...parts, description: t.description, inputSchema: t.parameters, readOnly: !!t.annotations?.readOnlyHint };
+}
+
+/** Safe to run unasked: the server says it only reads, and only from a closed world. */
+function runsWithoutApproval(t: ToolListing | undefined): boolean {
+	return t?.annotations?.readOnlyHint === true && t.annotations.openWorldHint === false;
 }
 
 function textOf(content: unknown[] | undefined): string {
@@ -106,7 +113,7 @@ function tokenMatches(given: string | string[] | undefined, expected: string): b
 }
 
 function createBridgeHandler(token: string, opts: BridgeOptions) {
-	/** (artifact, tool) pairs the user approved in this session. */
+	/** Tools the user approved for artifacts in this session. */
 	const approved = new Set<string>();
 
 	return async (req: IncomingMessage, res: ServerResponse) => {
@@ -144,11 +151,9 @@ function createBridgeHandler(token: string, opts: BridgeOptions) {
 				if (!runner.tools.some((t) => t.name === call.name)) {
 					return send(res, 404, { error: `MCP tool "${call.name}" is not available in pi (is its server connected? see /mcp)` });
 				}
-				const readOnly = !!opts.listAllTools().find((t) => t.name === call.name)?.annotations?.readOnlyHint;
-				const pair = `${call.artifactId}\u0000${call.name}`;
-				if (!readOnly && !approved.has(pair) && opts.confirm) {
-					if (!(await opts.confirm(call))) return send(res, 403, { error: `The user declined ${call.name} for this artifact` });
-					approved.add(pair);
+				if (!runsWithoutApproval(opts.listAllTools().find((t) => t.name === call.name)) && !approved.has(call.name)) {
+					if (!opts.confirm || !(await opts.confirm(call))) return send(res, 403, { error: `The user declined ${call.name} for artifacts` });
+					approved.add(call.name);
 				}
 				opts.onCall?.(call);
 				const outcome = await runner.executeTool(call.name, call.args, { signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000) });

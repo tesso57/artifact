@@ -22,12 +22,18 @@ export interface WriteArtifactInput {
 	mcp?: string[];
 }
 
-/** A free id for a new artifact: the title's slug, or `slug-2`, `slug-3`, … */
-async function freeId(title: string, root: string): Promise<string> {
+/** Claim a free id for a new artifact (`slug`, `slug-2`, …) by creating its folder exclusively. */
+async function claimId(title: string, root: string): Promise<string> {
 	const base = slugify(title);
+	await mkdir(root, { recursive: true });
 	for (let n = 1; ; n++) {
 		const id = n === 1 ? base : `${base.slice(0, 60)}-${n}`;
-		if (!existsSync(join(root, id))) return id;
+		try {
+			await mkdir(join(root, id)); // fails if another writer took it first
+			return id;
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+		}
 	}
 }
 
@@ -41,7 +47,7 @@ export async function writeArtifact(
 	input: WriteArtifactInput,
 	root = artifactsDir(),
 ): Promise<{ meta: ArtifactMeta; created: boolean }> {
-	const id = input.id ?? (await freeId(input.title, root));
+	const id = input.id ?? (await claimId(input.title, root));
 	const paths = artifactPaths(id, root);
 	const previous = await readMeta(id, root);
 	const now = Date.now();

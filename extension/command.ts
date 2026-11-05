@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { artifactsDir } from "../shared/paths.ts";
 import type { ArtifactMeta } from "../shared/protocol.ts";
@@ -45,13 +46,15 @@ export function registerArtifactsCommand(pi: ExtensionAPI, runtime: ArtifactsRun
 			const [sub, arg, path] = args.trim().split(/\s+/);
 			try {
 				if (sub === "stop") {
-					await runtime.daemon.api("/shutdown", {});
+					await runtime.daemon.api("/shutdown", {}, { start: false }).catch(() => {});
 					return ctx.ui.notify("Artifact viewer stopped", "info");
 				}
 				if (sub === "export") {
 					if (!arg) return ctx.ui.notify("Usage: /artifacts export <id> [file.html]", "warning");
 					ctx.ui.notify(`Exporting ${arg}…`, "info");
-					const r = await runtime.daemon.api<ExportResponse>("/export", { id: arg, outFile: exportTarget(ctx.cwd, arg, path) });
+					const outFile = exportTarget(ctx.cwd, arg, path);
+					const overwrite = existsSync(outFile) && (await ctx.ui.confirm("Overwrite?", `${outFile} exists. Replace it?`));
+					const r = await runtime.daemon.api<ExportResponse>("/export", { id: arg, outFile, overwrite });
 					return ctx.ui.notify(formatExport(r), "info");
 				}
 				if (sub === "delete") {

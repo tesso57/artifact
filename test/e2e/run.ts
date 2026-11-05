@@ -61,6 +61,15 @@ try {
 	if (radius !== "0.1234rem") throw new Error(`theme.css not applied (--radius: ${radius})`);
 	step("login link → page renders MCP data, Tailwind classes, recharts and theme.css");
 
+	// Artifacts (any script in the page) cannot read files outside the viewer's own roots.
+	const outside = await page.evaluate(async (paths) => {
+		const out: Record<string, number> = {};
+		for (const p of paths) out[p] = (await fetch(`/@fs${p}`)).status;
+		return out;
+	}, ["/etc/hostname", `${dirname(dirname(here))}/package.json`.replace(/\/[^/]+\/package.json$/, "/x/package.json"), join(dir, ".state", "memory.sqlite")]);
+	if (Object.values(outside).some((s) => s !== 403 && s !== 404)) throw new Error(`readable outside the allow list: ${JSON.stringify(outside)}`);
+	step("/@fs outside the viewer, artifacts and templates is refused");
+
 	await page.getByRole("button", { name: "Reverse" }).click();
 	await page.getByTestId("history").getByText("ip olleh").waitFor({ timeout: 20000 });
 	await page.waitForTimeout(500);

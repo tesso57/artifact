@@ -179,17 +179,30 @@ sequenceDiagram
 
 ### Security model
 
-- The viewer listens on 127.0.0.1. Every request needs a session cookie (set by an Open
-  link: random, short-lived token → HttpOnly, SameSite=Strict cookie) or, for the
-  extension, the daemon secret header. State-changing browser requests must be
-  same-origin. The extension API (`/__pi/api`) does not accept the cookie.
-- A Content Security Policy keeps artifacts from loading or sending anything outside the
-  viewer (`connect-src 'self'`). Daemon state (SQLite, secret) is never served.
-- Artifacts share one origin, so memory scopes are a convention, not a sandbox: an
-  artifact can read another artifact's memory. Treat artifacts like any other code the
-  agent writes.
-- MCP calls are limited to the artifact's allowlist, only `mcp__*` tools are reachable,
-  tools that are not read-only need approval, and every call goes through pi's hooks.
+What is protected:
+
+- **Other programs and websites.** The viewer listens on 127.0.0.1. Browsers get in only
+  through an Open link: a one-time token (30 minutes) that becomes a random session
+  cookie (HttpOnly, SameSite=Strict) — never the daemon's secret. The extension's API
+  (`/__pi/api`) only takes the secret header (state file is `0600`, state folder `0700`).
+  State-changing browser requests must be same-origin, and Vite's editor endpoint is
+  blocked.
+- **Your files.** The viewer serves only its own sources, its dependencies, artifacts and
+  templates. Daemon state (SQLite, lock, secret, log) is never served.
+- **MCP tools.** Only `mcp__*` tools are reachable, every call goes through pi's tool
+  pipeline (hooks, permission gates), and a tool runs without asking only when its server
+  marks it read-only and closed-world; anything else asks you once per tool per session.
+
+What is not (artifacts are code the agent wrote, running in your browser):
+
+- **Artifacts are not isolated from each other.** They share one origin, so an artifact
+  can read another artifact's memory, and the per-artifact `mcp` allowlist only prevents
+  mistakes — a malicious artifact can claim another's id. Approval is therefore per
+  tool, not per artifact.
+- **The CSP reduces, but does not stop, exfiltration.** `connect-src 'self'` blocks
+  `fetch`/WebSocket to other hosts, but a script can still navigate the page elsewhere.
+  Render MCP results as text (React does this by default), not as HTML.
+- Exported HTML files carry a CSP that blocks all network access.
 
 ### Lifecycle
 

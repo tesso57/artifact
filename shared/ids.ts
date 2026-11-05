@@ -4,7 +4,10 @@ const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /** Memory scope readable by every artifact; no artifact may use it as its id. */
 export const SHARED_SCOPE = "shared";
+/** Template previews run as `template-<name>`; artifacts may not take such ids. */
+export const TEMPLATE_PREFIX = "template-";
 const RESERVED_IDS = new Set([SHARED_SCOPE]);
+const isReserved = (id: string) => RESERVED_IDS.has(id) || id.startsWith(TEMPLATE_PREFIX);
 
 /** Artifact ids, memory scopes and template names: lowercase slug, max 64 chars. */
 export function isValidId(id: unknown): id is string {
@@ -17,7 +20,7 @@ function assertValidId(id: unknown, what = "artifact id"): asserts id is string 
 
 export function assertArtifactId(id: unknown): asserts id is string {
 	assertValidId(id);
-	if (RESERVED_IDS.has(id)) throw new Error(`"${id}" is reserved and cannot be an artifact id`);
+	if (isReserved(id)) throw new Error(`"${id}" is reserved and cannot be an artifact id`);
 }
 
 /** Turn a title into a URL-safe slug (never a reserved id). */
@@ -30,5 +33,5 @@ export function slugify(input: string): string {
 		.slice(0, 60)
 		.replace(/-+$/g, "");
 	if (!slug) return `artifact-${Date.now().toString(36)}`;
-	return RESERVED_IDS.has(slug) ? `${slug}-artifact` : slug;
+	return isReserved(slug) ? `artifact-${slug}`.slice(0, 64).replace(/-+$/g, "") : slug;
 }

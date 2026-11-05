@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
@@ -25,9 +25,16 @@ export class Memory {
 	private db: DatabaseSyncType;
 
 	constructor(path = memoryDbPath()) {
-		if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+		if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 		const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 		this.db = new DatabaseSync(path);
+		if (path !== ":memory:") {
+			for (const f of [path, `${path}-wal`, `${path}-shm`]) {
+				try {
+					chmodSync(f, 0o600);
+				} catch {}
+			}
+		}
 		this.db.exec(`
 			PRAGMA journal_mode = WAL;
 			PRAGMA busy_timeout = 5000;

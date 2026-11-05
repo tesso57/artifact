@@ -33,7 +33,12 @@ afterAll(async () => {
 	await rm(dir, { recursive: true, force: true });
 });
 
-const cookie = () => ({ cookie: `${SESSION_COOKIE}=${encodeURIComponent(ctx.secret)}` });
+let session = "";
+const cookie = () => ({ cookie: `${SESSION_COOKIE}=${session}` });
+async function login(next = "/") {
+	const res = await fetch(new URL(ctx.link(next)), { redirect: "manual" });
+	return { res, value: /pi_artifacts=([^;]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? "" };
+}
 const secret = () => ({ [DAEMON_SECRET_HEADER]: ctx.secret, "content-type": "application/json" });
 
 describe("guard", () => {
@@ -44,15 +49,35 @@ describe("guard", () => {
 		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
 	});
 
-	it("logs in with a link token, sets an HttpOnly SameSite=Strict cookie and redirects locally", async () => {
+	it("logs in with a one-time link token and sets a session cookie that is not the API secret", async () => {
 		const link = new URL(ctx.link("/a/x"));
 		const res = await fetch(link, { redirect: "manual" });
 		expect(res.status).toBe(302);
 		expect(res.headers.get("location")).toBe("/a/x");
 		expect(res.headers.get("set-cookie")).toMatch(/HttpOnly; SameSite=Strict/);
+		session = /pi_artifacts=([^;]+)/.exec(res.headers.get("set-cookie") ?? "")![1];
+		expect(session).not.toBe(ctx.secret);
+		expect(session).not.toContain(encodeURIComponent(ctx.secret));
+		// Single use: the same link does not log in again.
+		expect((await fetch(link, { redirect: "manual" })).status).toBe(401);
 		expect((await fetch(`${base}/__pi/login?t=bogus`, { redirect: "manual" })).status).toBe(401);
-		const evil = new URL(ctx.link("//evil.example"));
-		expect((await fetch(evil, { redirect: "manual" })).headers.get("location")).toBe("/");
+		// The master secret is not a login token.
+		expect((await fetch(`${base}/__pi/login?t=${ctx.secret}`, { redirect: "manual" })).status).toBe(401);
+	});
+
+	it("only redirects to local paths", async () => {
+		for (const next of ["//evil.example", "/\\evil.example", "https://evil.example"]) {
+			expect((await login(next)).res.headers.get("location")).toBe("/");
+		}
+	});
+
+	it("does not accept the API secret as a cookie, or a cookie as the API secret", async () => {
+		expect((await fetch(`${base}/`, { headers: { cookie: `${SESSION_COOKIE}=${ctx.secret}` } })).status).toBe(401);
+		expect((await fetch(`${base}/__pi/api/health`, { headers: { [DAEMON_SECRET_HEADER]: session } })).status).toBe(401);
+	});
+
+	it("blocks Vite's open-in-editor endpoint", async () => {
+		expect((await fetch(`${base}/__open-in-editor?file=/etc/passwd`, { headers: cookie() })).status).toBe(403);
 	});
 
 	it("serves the app with the cookie", async () => {
@@ -84,6 +109,22 @@ describe("api", () => {
 		expect(await (await post("/memory", { action: "get", scope: "notes", key: "k" })).json()).toBe(1);
 		expect((await post("/artifacts/write", { id: "shared", title: "x", code: "" })).status).toBe(400);
 		expect((await post("/artifacts/delete", { id: "../../etc" })).status).toBe(400);
+	});
+
+	it("refuses exports outside .html files and silent overwrites", async () => {
+		await post("/artifacts/write", { id: "ex", title: "Ex", code: "" });
+		const sh = join(dir, "x.sh");
+		expect(await (await post("/export", { id: "ex", outFile: sh })).json()).toMatchObject({ error: expect.stringMatching(/\.html/) });
+		const { writeFile } = await import("node:fs/promises");
+		const existing = join(dir, "exists.html");
+		await writeFile(existing, "keep");
+		expect(await (await post("/export", { id: "ex", outFile: existing })).json()).toMatchObject({ error: expect.stringMatching(/exists/) });
+	});
+
+	it("reserves template- ids so artifacts cannot borrow a template's allowlist", async () => {
+		expect((await post("/artifacts/write", { id: "template-mcp-explorer", title: "x", code: "" })).status).toBe(400);
+		const r = await (await post("/artifacts/write", { title: "Template MCP Explorer", code: "" })).json();
+		expect(r.meta.id).toBe("artifact-template-mcp-explorer");
 	});
 
 	it("registers sessions and refuses MCP calls outside the allowlist", async () => {

@@ -1,4 +1,6 @@
-import { join } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
@@ -7,6 +9,14 @@ import { artifactsDir, BUNDLED_TEMPLATES_DIR, PACKAGE_ROOT, stateDir, userTempla
 import { DaemonContext } from "./server/context.ts";
 import { piArtifactsPlugin } from "./server/plugin.ts";
 import { sharedResolve, VIEWER_DIR } from "./server/vite-shared.ts";
+
+/** The node_modules folders the viewer's dependencies really live in (no parent folders). */
+function dependencyDirs(): string[] {
+	const require = createRequire(import.meta.url);
+	const hoisted = dirname(dirname(realpathSync(require.resolve("vite/package.json"))));
+	const nested = join(PACKAGE_ROOT, "node_modules");
+	return [...new Set([hoisted, ...(existsSync(nested) ? [realpathSync(nested)] : [])])];
+}
 
 const ctx = (() => {
 	try {
@@ -22,7 +32,8 @@ export default defineConfig({
 		cors: false,
 		fs: {
 			strict: true,
-			allow: [VIEWER_DIR, join(PACKAGE_ROOT, "shared"), join(PACKAGE_ROOT, "node_modules"), join(PACKAGE_ROOT, ".."), artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR],
+			// Exactly what the app needs: its own sources, its dependencies, artifacts and templates.
+			allow: [VIEWER_DIR, join(PACKAGE_ROOT, "shared"), ...dependencyDirs(), artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR],
 			// Never serve daemon state (SQLite, lock, secret) even though it sits under the artifacts dir.
 			deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", `${stateDir().replaceAll("\\", "/")}/**`, "**/*.sqlite*", "**/viewer.json"],
 		},

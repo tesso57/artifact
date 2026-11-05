@@ -56,6 +56,7 @@ export function renderHtml(opts: { title: string; css: string; js: string; snaps
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="generator" content="pi-artifacts" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'" />
 <title>${title}</title>
 <style>${opts.css.replace(/<\/(style)/gi, "<\\/$1")}</style>
 <script>window.__PI_ARTIFACT__ = ${data};</script>

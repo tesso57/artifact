@@ -2,6 +2,7 @@
  * Template: MCP-powered artifact — lists the MCP tools pi is connected to and
  * runs one with JSON arguments. Shows the loading / error / offline states every
  * MCP artifact needs. For a specific tool, prefer `useMcp("server.tool", args)`.
+ * As an artifact it can only run the tools in its `mcp` allowlist (e.g. ["github.*"]).
  */
 import { useMcpMutation, useMcpStatus, useMcpTools } from "@pi/artifact";
 import { Play, PlugZap, TriangleAlert } from "lucide-react";

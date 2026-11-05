@@ -8,12 +8,12 @@
  * State: <state>/viewer.json { pid, port, url, secret, version }; <state>/viewer.lock.
  * Exits after PI_ARTIFACTS_IDLE_MS (default 15 min) without sessions or requests.
  */
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { createServer } from "vite";
 import { daemonStatePath, PACKAGE_ROOT, stateDir } from "../../shared/paths.ts";
-import type { DaemonState } from "../../shared/protocol.ts";
+import { type DaemonState, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import { DaemonContext } from "./context.ts";
 import { VIEWER_DIR } from "./vite-shared.ts";
 
@@ -48,7 +48,11 @@ function acquireLock(file: string): boolean {
 	return false;
 }
 
-mkdirSync(stateDir(), { recursive: true });
+// State (SQLite with memory and MCP results, logs, the secret) is private to the user.
+mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
+try {
+	chmodSync(stateDir(), 0o700);
+} catch {}
 const lockFile = join(stateDir(), "viewer.lock");
 if (!acquireLock(lockFile)) {
 	console.log("pi-artifacts viewer is already running");
@@ -68,7 +72,7 @@ const server = await createServer({
 await server.listen();
 ctx.port = (server.httpServer?.address() as AddressInfo).port;
 
-const state: DaemonState = { pid: process.pid, port: ctx.port, url: ctx.origin, secret: ctx.secret, version, startedAt: Date.now() };
+const state: DaemonState = { protocol: PROTOCOL_VERSION, pid: process.pid, port: ctx.port, url: ctx.origin, secret: ctx.secret, version, startedAt: Date.now() };
 const statePath = daemonStatePath();
 writeFileSync(`${statePath}.tmp`, JSON.stringify(state), { mode: 0o600 });
 renameSync(`${statePath}.tmp`, statePath);
@@ -89,6 +93,7 @@ async function stop(reason: string) {
 	ctx.memory.close();
 	process.exit(0);
 }
+ctx.onShutdown = () => void stop("api");
 process.on("SIGTERM", () => stop("SIGTERM"));
 process.on("SIGINT", () => stop("SIGINT"));
 

@@ -47,24 +47,43 @@ export class ArtifactsRuntime {
 	captureToolContext(ctx: ExtensionContext): void {
 		this.attach(ctx);
 		const candidate = ctx as Partial<ToolRunner>;
-		if (typeof candidate.executeTool === "function") this.runner = candidate as ToolRunner;
+		if (typeof candidate.executeTool !== "function") return;
+		const first = !this.runner;
+		this.runner = candidate as ToolRunner;
+		// Tell the daemon right away that this session can now run MCP tools for artifacts.
+		if (first && this.registered) void this.sendRegistration(false).catch(() => {});
+	}
+
+	private registration() {
+		return {
+			sessionId: this.sessionId,
+			cwd: this.ui?.cwd ?? process.cwd(),
+			bridgeUrl: this.bridge!.url,
+			bridgeToken: this.bridge!.token,
+			ready: !!this.runner,
+			tools: this.pi.getAllTools().map((t) => t.name).filter((n) => n.startsWith("mcp__")),
+		};
+	}
+
+	private sendRegistration(start: boolean) {
+		return this.daemon.api("/sessions/register", this.registration(), { start });
 	}
 
 	/** Register with a daemon that is already running; never starts one (cheap, for session start). */
 	async connectIfRunning(): Promise<void> {
-		if (await this.daemon.running()) await this.connect();
+		if (await this.daemon.running()) await this.connect(false);
 	}
 
 	/** Start the daemon if needed, start the bridge and register this session (idempotent). */
-	connect(): Promise<void> {
-		this.registered ??= this.register().catch((error) => {
+	connect(start = true): Promise<void> {
+		this.registered ??= this.register(start).catch((error) => {
 			this.registered = undefined;
 			throw error;
 		});
 		return this.registered;
 	}
 
-	private async register(): Promise<void> {
+	private async register(start: boolean): Promise<void> {
 		this.bridge ??= await startBridge({
 			getRunner: () => this.runner,
 			listAllTools: () =>
@@ -75,16 +94,10 @@ export class ArtifactsRuntime {
 				this.updateStatus();
 			},
 		});
-		const send = () =>
-			this.daemon.api("/sessions/register", {
-				sessionId: this.sessionId,
-				cwd: this.ui?.cwd ?? process.cwd(),
-				bridgeUrl: this.bridge!.url,
-				bridgeToken: this.bridge!.token,
-			});
-		await send();
+		await this.sendRegistration(start);
 		clearInterval(this.heartbeat);
-		this.heartbeat = setInterval(() => void send().catch(() => {}), HEARTBEAT_MS);
+		// Heartbeats never start a viewer: after /artifacts stop (or idle exit) it stays stopped.
+		this.heartbeat = setInterval(() => void this.sendRegistration(false).catch(() => {}), HEARTBEAT_MS);
 		this.heartbeat.unref?.();
 		this.updateStatus();
 	}
@@ -98,15 +111,15 @@ export class ArtifactsRuntime {
 		// Without a UI nobody can approve; read-only tools never get here.
 		if (!ui?.hasUI) return false;
 		return ui.ui.confirm(
-			"Artifact wants to run an MCP tool",
-			`"${req.artifactTitle}" wants to call ${req.name} with\n${JSON.stringify(req.args, null, 2).slice(0, 800)}\n\nAllow it for this artifact (until pi restarts)?`,
+			"An artifact wants to run an MCP tool",
+			`An artifact (it says it is "${req.artifactTitle}") wants to call ${req.name} with\n${JSON.stringify(req.args, null, 2).slice(0, 800)}\n\nAllow artifacts to use ${req.name} for the rest of this session?`,
 		);
 	}
 
 	async shutdown(): Promise<void> {
 		clearInterval(this.heartbeat);
 		this.heartbeat = undefined;
-		if (this.registered) await this.daemon.api("/sessions/unregister", { sessionId: this.sessionId }, false).catch(() => {});
+		if (this.registered) await this.daemon.api("/sessions/unregister", { sessionId: this.sessionId }, { start: false }).catch(() => {});
 		this.registered = undefined;
 		await this.bridge?.close();
 		this.bridge = undefined;

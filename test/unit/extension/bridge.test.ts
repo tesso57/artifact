@@ -4,7 +4,8 @@ import { type Bridge, startBridge, type ToolListing, type ToolRunner } from "../
 
 const tools: ToolListing[] = [
 	{ name: "bash", description: "run shell", parameters: {} },
-	{ name: "mcp__docs__search", description: "Search docs", parameters: { type: "object" }, annotations: { readOnlyHint: true } },
+	{ name: "mcp__docs__search", description: "Search docs", parameters: { type: "object" }, annotations: { readOnlyHint: true, openWorldHint: false } },
+	{ name: "mcp__docs__web", description: "Search the web", parameters: {}, annotations: { readOnlyHint: true } },
 	{ name: "mcp__docs__delete", description: "Delete a doc", parameters: {} },
 ];
 
@@ -43,11 +44,12 @@ describe("bridge", () => {
 		const { json } = await call("/mcp/tools");
 		expect(json.tools.map((t: any) => [t.name, t.readOnly])).toEqual([
 			["mcp__docs__search", true],
+			["mcp__docs__web", true],
 			["mcp__docs__delete", false],
 		]);
 	});
 
-	it("runs read-only tools without asking and parses JSON text", async () => {
+	it("runs read-only, closed-world tools without asking and parses JSON text", async () => {
 		const runner = makeRunner();
 		const confirm = vi.fn(async () => false);
 		bridge = await startBridge({ getRunner: () => runner, listAllTools: () => tools, confirm });
@@ -57,15 +59,20 @@ describe("bridge", () => {
 		expect(confirm).not.toHaveBeenCalled();
 	});
 
-	it("asks once per artifact and tool for tools that may change things", async () => {
+	it("asks once per tool per session for tools that may change things or reach out (artifact ids are not trusted)", async () => {
 		const runner = makeRunner();
 		const confirm = vi.fn(async () => true);
 		bridge = await startBridge({ getRunner: () => runner, listAllTools: () => tools, confirm });
 		expect((await call("/mcp/call", req("mcp__docs__delete"))).status).toBe(200);
-		expect((await call("/mcp/call", req("mcp__docs__delete"))).status).toBe(200);
+		expect((await call("/mcp/call", req("mcp__docs__delete", "another-artifact"))).status).toBe(200);
 		expect(confirm).toHaveBeenCalledTimes(1);
-		await call("/mcp/call", req("mcp__docs__delete", "a2"));
+		expect((await call("/mcp/call", req("mcp__docs__web"))).status).toBe(200); // read-only but open-world
 		expect(confirm).toHaveBeenCalledTimes(2);
+	});
+
+	it("declines tools needing approval when nobody can approve", async () => {
+		bridge = await startBridge({ getRunner: () => makeRunner(), listAllTools: () => tools });
+		expect((await call("/mcp/call", req("mcp__docs__delete"))).status).toBe(403);
 	});
 
 	it("refuses when the user declines", async () => {
@@ -103,7 +110,7 @@ describe("bridge", () => {
 			executeTool: vi.fn(async () => ({ isError: false, result: { content: [{ type: "text", text: "late" }] } })),
 		};
 		bridge = await startBridge({ getRunner: () => runner, listAllTools: () => live, connectWaitMs: 1500 });
-		setTimeout(() => live.push({ name: "mcp__slow__ping", description: "", parameters: {}, annotations: { readOnlyHint: true } }), 300);
+		setTimeout(() => live.push({ name: "mcp__slow__ping", description: "", parameters: {}, annotations: { readOnlyHint: true, openWorldHint: false } }), 300);
 		expect((await call("/mcp/call", req("mcp__slow__ping"))).json.text).toBe("late");
 		expect((await call("/mcp/call", req("mcp__nope__x"))).status).toBe(404);
 	});

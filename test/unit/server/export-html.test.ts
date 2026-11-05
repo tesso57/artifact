@@ -15,6 +15,7 @@ describe("renderHtml", () => {
 	it("inlines CSS, JS and the snapshot in one document", () => {
 		const html = renderHtml({ title: "A <b>", css: ".a{}", js: "mount()", snapshot });
 		expect(html).toMatch(/^<!doctype html>/);
+		expect(html).toContain(`content="default-src 'none'; script-src 'unsafe-inline'`);
 		expect(html).toContain("<title>A &#60;b&#62;</title>");
 		expect(html).toContain("<style>.a{}</style>");
 		expect(html).toContain('<script type="module">mount()</script>');

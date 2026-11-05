@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Code2, Database, Eye } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MEMORY_CHANGED_EVENT } from "@/lib/events";
 import { timeAgo } from "@/lib/format";
 import { useArtifactModule } from "@/lib/use-artifact-module";
 import { ArtifactContext, setCurrentArtifact } from "@/sdk/context";
@@ -35,9 +36,21 @@ function report(id: string, error: unknown) {
  * forward uncaught errors, so the agent learns about crashes it cannot see.
  */
 function useRuntimeFeedback(id: string) {
+	const qc = useQueryClient();
+	useEffect(() => {
+		const hot = import.meta.hot;
+		if (!hot) return;
+		const onMemory = (data: { scope: string }) => {
+			void qc.invalidateQueries({ queryKey: ["pi-memory", data.scope] });
+			void qc.invalidateQueries({ queryKey: ["pi-memory-list", data.scope] });
+		};
+		hot.on(MEMORY_CHANGED_EVENT, onMemory);
+		return () => hot.off(MEMORY_CHANGED_EVENT, onMemory);
+	}, [qc]);
 	useEffect(() => {
 		setCurrentArtifact(id);
-		const ping = () => document.visibilityState === "visible" && void pingFn({ data: id }).catch(() => {});
+		// Ping even when the tab is in the background (behind the terminal is the usual case).
+		const ping = () => void pingFn({ data: id }).catch(() => {});
 		ping();
 		const timer = setInterval(ping, 8000);
 		const onError = (e: ErrorEvent) => report(id, e.error ?? e.message);

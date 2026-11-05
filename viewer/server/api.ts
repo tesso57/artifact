@@ -4,12 +4,13 @@
  *    header (pi extension); state-changing browser requests must be same-origin.
  *  - apiMiddleware: `/__pi/login`, `/__pi/theme.css` and the extension's `/__pi/api/*`.
  */
+import { existsSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import type { Connect } from "vite";
 import { assertArtifactId } from "../../shared/ids.ts";
 import { BUNDLED_TEMPLATES_DIR, designDir, userTemplatesDir } from "../../shared/paths.ts";
-import { DAEMON_SECRET_HEADER, SESSION_COOKIE, type SessionRegistration } from "../../shared/protocol.ts";
+import { DAEMON_SECRET_HEADER, PROTOCOL_VERSION, SESSION_COOKIE, type SessionRegistration } from "../../shared/protocol.ts";
 import type { DaemonContext } from "./context.ts";
 import { listArtifacts } from "./store.ts";
 import { deleteTemplate, getTemplate, listTemplates, saveTemplate } from "./templates.ts";
@@ -73,8 +74,10 @@ export function guardMiddleware(ctx: DaemonContext): Connect.NextHandleFunction 
 		res.setHeader("referrer-policy", "no-referrer");
 		const path = (req.url ?? "/").split("?")[0];
 		if (path === "/__pi/login") return next();
-		if (req.headers[DAEMON_SECRET_HEADER] === ctx.secret) return next();
-		if (cookie(req, SESSION_COOKIE) === ctx.secret && !path.startsWith("/__pi/api/")) {
+		// Vite's open-in-editor endpoint would let page scripts open files in the user's editor.
+		if (path.startsWith("/__open-in-editor")) return send(res, 403, { error: "Forbidden" });
+		if (ctx.isSecret(req.headers[DAEMON_SECRET_HEADER])) return next();
+		if (ctx.browserSession(cookie(req, SESSION_COOKIE)) && !path.startsWith("/__pi/api/")) {
 			if (req.method !== "GET" && req.method !== "HEAD" && !sameOrigin(req, ctx)) {
 				return send(res, 403, { error: "Cross-origin request refused" });
 			}
@@ -96,9 +99,10 @@ function unauthorized(res: ServerResponse) {
 type Handler = (ctx: DaemonContext, body: any, url: URL) => Promise<unknown> | unknown;
 
 const routes: Record<string, Handler> = {
-	"GET /health": (ctx) => ({ version: ctx.version, pid: process.pid, port: ctx.port, sessions: ctx.sessions.size }),
-	"POST /shutdown": () => {
-		setTimeout(() => process.kill(process.pid, "SIGTERM"), 50);
+	"GET /health": (ctx) => ({ protocol: PROTOCOL_VERSION, version: ctx.version, pid: process.pid, port: ctx.port, sessions: ctx.sessions.size }),
+	"POST /shutdown": (ctx) => {
+		// After the response is sent; process.kill(SIGTERM) would skip cleanup on Windows.
+		setTimeout(() => ctx.onShutdown(), 50);
 		return { ok: true };
 	},
 	"POST /sessions/register": (ctx, body: SessionRegistration) => {
@@ -131,9 +135,12 @@ const routes: Record<string, Handler> = {
 		assertArtifactId(body.id);
 		return { deleted: await ctx.deleteArtifact(body.id) };
 	},
-	"POST /export": async (ctx, body: { id: string; outFile?: string }) => {
+	"POST /export": async (ctx, body: { id: string; outFile?: string; overwrite?: boolean }) => {
 		assertArtifactId(body.id);
-		const r = await ctx.exportArtifact(body.id, body.outFile ? resolve(body.outFile) : undefined);
+		const outFile = body.outFile ? resolve(body.outFile) : undefined;
+		if (outFile && !/\.html?$/i.test(outFile)) throw new Error("Exports must be written to an .html file");
+		if (outFile && existsSync(outFile) && !body.overwrite) throw new Error(`${outFile} exists; pass overwrite: true to replace it`);
+		const r = await ctx.exportArtifact(body.id, outFile);
 		return { file: r.file, bytes: r.bytes, embedded: r.embedded };
 	},
 
@@ -150,9 +157,13 @@ const routes: Record<string, Handler> = {
 				return ctx.memory.get(scope, key()) ?? null;
 			case "set":
 				ctx.memory.set(scope, key(), body.value);
+				ctx.memoryChanged(scope);
 				return { ok: true };
-			case "delete":
-				return { deleted: ctx.memory.delete(scope, key()) };
+			case "delete": {
+				const deleted = ctx.memory.delete(scope, key());
+				ctx.memoryChanged(scope);
+				return { deleted };
+			}
 			default:
 				throw new Error(`Unknown memory action ${JSON.stringify(body.action)}`);
 		}
@@ -185,11 +196,12 @@ export function apiMiddleware(ctx: DaemonContext): Connect.NextHandleFunction {
 		const url = new URL(req.url ?? "/", ctx.origin);
 
 		if (url.pathname === "/__pi/login") {
-			if (!ctx.acceptLogin(url.searchParams.get("t"))) return unauthorized(res);
+			const session = ctx.login(url.searchParams.get("t"));
+			if (!session) return unauthorized(res);
 			const target = url.searchParams.get("next") ?? "/";
 			res.statusCode = 302;
-			res.setHeader("set-cookie", `${SESSION_COOKIE}=${encodeURIComponent(ctx.secret)}; Path=/; HttpOnly; SameSite=Strict`);
-			res.setHeader("location", target.startsWith("/") && !target.startsWith("//") ? target : "/");
+			res.setHeader("set-cookie", `${SESSION_COOKIE}=${session}; Path=/; HttpOnly; SameSite=Strict`);
+			res.setHeader("location", /^\/(?![/\\])[^\\]*$/.test(target) ? target : "/");
 			return res.end();
 		}
 		if (url.pathname === "/__pi/theme.css") {
@@ -198,7 +210,7 @@ export function apiMiddleware(ctx: DaemonContext): Connect.NextHandleFunction {
 			return res.end(await ctx.themeCss());
 		}
 		if (!url.pathname.startsWith("/__pi/api/")) return next();
-		if (req.headers[DAEMON_SECRET_HEADER] !== ctx.secret) return send(res, 401, { error: "Unauthorized" });
+		if (!ctx.isSecret(req.headers[DAEMON_SECRET_HEADER])) return send(res, 401, { error: "Unauthorized" });
 
 		const handler = routes[`${req.method} ${url.pathname.slice("/__pi/api".length)}`];
 		if (!handler) return send(res, 404, { error: "Not found" });

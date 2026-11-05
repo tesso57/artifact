@@ -69,7 +69,6 @@ export const backend: Backend = {
 		return {
 			isError: true,
 			text: `${name} is not available in this exported file (no result was captured for these arguments)`,
-			content: [],
 		};
 	},
 };

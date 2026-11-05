@@ -13,7 +13,8 @@ import { useMemory, useMemoryList, memory, useMcp, useMcpMutation, callMcp, useM
 - `memory.get/set/delete/list(scope, …)` — imperative, outside render.
 - The agent reads and writes the same store with `artifact_memory`, so memory is also the
   way to hand data from the conversation to an artifact (and back).
-- Values are JSON. Keep them small (settings, entries, cached summaries); store one key per
+- Values are JSON (`null` is a value; `memory.delete` removes a key). The agent's writes
+  appear in open tabs immediately. Keep them small (settings, entries, cached summaries); store one key per
   collection (`"todos"`) rather than one key per item unless items are large.
 
 ## MCP (through pi)
@@ -22,9 +23,9 @@ import { useMemory, useMemoryList, memory, useMcp, useMcpMutation, callMcp, useM
 - **Allowlist:** an artifact may only call the tools listed in `artifact_write`'s `mcp`
   parameter (`"server.tool"`, `"server.*"`, `"*"`). Anything else fails with an
   "allowlist" error — add the tool and write again.
-- **Approval:** tools the MCP server does not mark read-only ask the user in pi once per
-  artifact and tool. Prefer read-only tools for views; put writes behind a button
-  (`useMcpMutation`) so the prompt appears when the user acts.
+- **Approval:** a tool runs unasked only when its server marks it read-only and
+  closed-world; otherwise pi asks the user once per tool per session. Put writes behind a
+  button (`useMcpMutation`) so the prompt appears when the user acts.
 - `useMcp<T>(name, args, queryOptions?)` → TanStack Query result whose `data` is
   `{ text, data: T }`: `data` is the server's `structuredContent`, or the text parsed as
   JSON when it looks like JSON, else `undefined` (use `text`).

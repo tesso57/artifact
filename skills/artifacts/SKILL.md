@@ -52,7 +52,9 @@ React 19, Tailwind CSS v4, shadcn/ui.
   radix-ui, class-variance-authority, clsx, tailwind-merge. No network fetches to
   arbitrary URLs: use MCP tools.
 - Keep the module self-contained and readable: types and constants at the top,
-  components below, one default export.
+  components below, one **named** default export (`export default function SalesBoard()`),
+  so hot reload keeps state.
+- Render data from MCP or memory as text; never with `dangerouslySetInnerHTML`.
 
 ## References
 

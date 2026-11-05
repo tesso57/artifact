@@ -75,7 +75,10 @@ export function useMemory<T>(
 	initialRef.current = initial;
 	const query = useQuery({
 		queryKey,
-		queryFn: async () => (await memory.get<T>(scope, key)) ?? initialRef.current,
+		queryFn: async () => {
+			const value = await memory.get<T>(scope, key);
+			return value === undefined ? initialRef.current : value;
+		},
 	});
 	const { mutate, error: mutationError } = useMutation({
 		mutationFn: (value: T) => memory.set(scope, key, value),
@@ -83,14 +86,17 @@ export function useMemory<T>(
 	});
 	const set = useCallback(
 		(next: T | ((prev: T) => T)) => {
-			const prev = qc.getQueryData<T>(queryKey) ?? initialRef.current;
+			const cached = qc.getQueryData<T>(queryKey);
+			const prev = cached === undefined ? initialRef.current : cached;
 			const value = typeof next === "function" ? (next as (p: T) => T)(prev) : next;
+			// A read still in flight (e.g. a focus refetch) must not undo this write.
+			void qc.cancelQueries({ queryKey });
 			qc.setQueryData(queryKey, value);
 			mutate(value);
 		},
 		[qc, queryKey, mutate],
 	);
-	return [(query.data ?? initial) as T, set, { loading: query.isPending, error: query.error ?? mutationError }];
+	return [(query.data === undefined ? initial : query.data) as T, set, { loading: query.isPending, error: query.error ?? mutationError }];
 }
 
 /** Every entry of a scope (optionally under a key prefix). */

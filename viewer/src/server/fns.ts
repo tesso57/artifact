@@ -65,12 +65,15 @@ type Scoped = { scope: string; key: string; from?: string };
 
 export const memoryGetFn = createServerFn({ method: "POST" })
 	.validator((d: Scoped) => d)
-	// `null` instead of undefined so the value survives serialization.
-	.handler(({ data }) => ({ value: ctx().memory.get(ctx().scope(data.scope, data.from, data.key), data.key) ?? null }));
+	.handler(({ data }) => {
+		const value = ctx().memory.get(ctx().scope(data.scope, data.from, data.key), data.key);
+		// `found` keeps a stored `null` apart from a missing key (undefined does not serialize).
+		return { found: value !== undefined, value: (value ?? null) as never };
+	});
 
 export const memorySetFn = createServerFn({ method: "POST" })
 	.validator((d: Scoped & { value: unknown }) => d)
-	.handler(({ data }) => ({ updatedAt: ctx().memory.set(ctx().scope(data.scope), data.key, data.value ?? undefined).updatedAt }));
+	.handler(({ data }) => ({ updatedAt: ctx().memory.set(ctx().scope(data.scope), data.key, data.value === undefined ? null : data.value).updatedAt }));
 
 export const memoryDeleteFn = createServerFn({ method: "POST" })
 	.validator((d: Scoped) => d)

@@ -60,8 +60,12 @@ export function useArtifactModule(url: string, version: number): LoadedArtifact 
 				(mod) =>
 					setState((prev) => {
 						const next = toLoaded(mod);
-						const sameName = prev.status === "ready" && next.status === "ready" && prev.Component.name === next.Component.name;
-						return sameName ? prev : next; // same name: Fast Refresh already swapped it in place
+						// Fast Refresh swaps named components in place (keeping state); anonymous ones are
+						// not registered with it, and renamed ones are new components: mount those.
+						const named = (c: { name: string }) => c.name !== "" && c.name !== "default";
+						const sameName =
+							prev.status === "ready" && next.status === "ready" && named(next.Component) && prev.Component.name === next.Component.name;
+						return sameName ? prev : next;
 					}),
 				(error) => setState({ status: "error", error }),
 			);

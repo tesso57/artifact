@@ -3,13 +3,13 @@
  * functions (browser) and the exporter. One instance per daemon process, reachable from
  * server functions through `globalThis` (they run in Vite's module runner).
  */
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { resolve as resolvePath, sep } from "node:path";
-import { join } from "node:path";
+import { realpath } from "node:fs/promises";
+import { join, resolve as resolvePath, sep } from "node:path";
 import type { ViteDevServer } from "vite";
-import { isValidId, SHARED_SCOPE } from "../../shared/ids.ts";
+import { isValidId, SHARED_SCOPE, TEMPLATE_PREFIX } from "../../shared/ids.ts";
 import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, fsUrl, userTemplatesDir } from "../../shared/paths.ts";
 import {
 	type ArtifactMeta,
@@ -22,6 +22,7 @@ import {
 	normalizeMcpToolName,
 	type RuntimeError,
 } from "../../shared/protocol.ts";
+import { MEMORY_CHANGED_EVENT } from "../src/lib/events.ts";
 import { type ExportResult, exportArtifact } from "./export.ts";
 import { Memory } from "./memory.ts";
 import { SessionRegistry } from "./sessions.ts";
@@ -29,7 +30,9 @@ import { artifactPaths, deleteArtifact, listArtifacts, readMeta, type WriteArtif
 import { getTemplate } from "./templates.ts";
 
 const CONTEXT_KEY = Symbol.for("pi-artifacts.daemon");
-/** Open links (tokens in URLs given to people) stay valid this long. */
+/** A browser session (cookie) lasts this long; the daemon's restart also ends it. */
+const BROWSER_SESSION_TTL_MS = 7 * 24 * 3600_000;
+/** Open links (one-time tokens in URLs given to people) stay valid this long. */
 const LINK_TTL_MS = 30 * 60_000;
 /** A page that pinged within this window counts as open. */
 const VIEWING_TTL_MS = 20_000;
@@ -52,7 +55,12 @@ export class DaemonContext {
 	server: ViteDevServer | undefined;
 	port = 0;
 	lastActivity = Date.now();
+	/** Set by the daemon entry: how `/__pi/api/shutdown` stops it (works on Windows too). */
+	onShutdown: () => void = () => process.exit(0);
+	/** One-time login tokens (in links given to people) → expiry. */
 	private links = new Map<string, number>();
+	/** Browser sessions (cookie values) → expiry. Distinct from the API secret. */
+	private browserSessions = new Map<string, number>();
 	private errors = new Map<string, RuntimeError[]>();
 	private viewing = new Map<string, number>();
 
@@ -90,13 +98,38 @@ export class DaemonContext {
 		return `${this.origin}/__pi/login?t=${token}&next=${encodeURIComponent(next)}`;
 	}
 
-	/** Accept the master secret or an unexpired link token. */
-	acceptLogin(token: string | null): boolean {
-		if (!token) return false;
-		if (token === this.secret) return true;
-		const exp = this.links.get(token);
-		for (const [t, e] of this.links) if (e < Date.now()) this.links.delete(t);
-		return exp !== undefined && exp > Date.now();
+	/**
+	 * Exchange a one-time link token for a browser session id (the cookie value). Tokens are
+	 * deleted on use, so a link that leaked (logs, model context) stops working once opened.
+	 */
+	login(token: string | null): string | undefined {
+		const now = Date.now();
+		for (const [t, e] of this.links) if (e < now) this.links.delete(t);
+		if (!token || !this.links.has(token)) return undefined;
+		this.links.delete(token);
+		const session = randomBytes(24).toString("base64url");
+		this.browserSessions.set(session, now + BROWSER_SESSION_TTL_MS);
+		return session;
+	}
+
+	/** Whether a cookie value is a live browser session. */
+	browserSession(value: string | undefined): boolean {
+		if (!value) return false;
+		const exp = this.browserSessions.get(value);
+		if (exp === undefined) return false;
+		if (exp < Date.now()) {
+			this.browserSessions.delete(value);
+			return false;
+		}
+		return true;
+	}
+
+	/** Constant-time check of the extension's API secret. */
+	isSecret(value: unknown): boolean {
+		if (typeof value !== "string") return false;
+		const a = Buffer.from(value);
+		const b = Buffer.from(this.secret);
+		return a.length === b.length && timingSafeEqual(a, b);
 	}
 
 	// ---- artifacts -----------------------------------------------------------------
@@ -116,13 +149,16 @@ export class DaemonContext {
 	async templateView(name: string) {
 		const t = await getTemplate(name, BUNDLED_TEMPLATES_DIR);
 		if (!t) throw new Error(`Template "${name}" not found`);
-		return { id: `template-${t.name}`, title: `Template: ${t.title}`, description: t.description, mcp: t.mcp ?? [], createdAt: 0, updatedAt: 0, moduleUrl: fsUrl(t.path) };
+		return { id: `${TEMPLATE_PREFIX}${t.name}`, title: `Template: ${t.title}`, description: t.description, mcp: t.mcp ?? [], createdAt: 0, updatedAt: 0, moduleUrl: fsUrl(t.path) };
 	}
 
 	/** Source of an artifact or template module, for the Code tab (nothing else is readable). */
 	async moduleSource(moduleUrl: string): Promise<string> {
-		const file = resolvePath(moduleUrl.replace(/^\/@fs\/?/, "/").replace(/^\/([A-Za-z]:)/, "$1"));
-		const roots = [artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR].map((r) => resolvePath(r) + sep);
+		const asked = resolvePath(moduleUrl.replace(/^\/@fs\/?/, "/").replace(/^\/([A-Za-z]:)/, "$1"));
+		const file = await realpath(asked).catch(() => asked);
+		const roots = await Promise.all(
+			[artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR].map(async (r) => (await realpath(r).catch(() => resolvePath(r))) + sep),
+		);
 		if (!/[\\/](index|template)\.tsx$/.test(file) || !roots.some((r) => file.startsWith(r))) throw new Error("Not an artifact module");
 		return readFile(file, "utf8");
 	}
@@ -169,6 +205,11 @@ export class DaemonContext {
 		this.errors.set(id, list.slice(-10));
 	}
 
+	/** Tell open pages that the agent changed a memory scope, so they refetch it. */
+	memoryChanged(scope: string): void {
+		this.server?.ws.send({ type: "custom", event: MEMORY_CHANGED_EVENT, data: { scope } });
+	}
+
 	noteViewing(id: string): void {
 		if (isValidId(id)) this.viewing.set(id, Date.now());
 	}
@@ -190,8 +231,8 @@ export class DaemonContext {
 
 	/** Meta of an artifact or of a template preview (`template-<name>`). */
 	async callerMeta(id: string): Promise<Pick<ArtifactMeta, "id" | "title" | "mcp" | "sessionId"> | undefined> {
-		if (id.startsWith("template-")) {
-			const t = await getTemplate(id.slice("template-".length), BUNDLED_TEMPLATES_DIR);
+		if (id.startsWith(TEMPLATE_PREFIX)) {
+			const t = await getTemplate(id.slice(TEMPLATE_PREFIX.length), BUNDLED_TEMPLATES_DIR);
 			return t && { id, title: `Template: ${t.title}`, mcp: t.mcp };
 		}
 		return readMeta(id);
@@ -224,7 +265,7 @@ export class DaemonContext {
 				`${rawName} is not in this artifact's MCP allowlist (${meta.mcp?.join(", ") || "empty"}). Ask the agent to add it to the "mcp" list of artifact_write.`,
 			);
 		}
-		const session = this.sessions.pick(meta.sessionId);
+		const session = this.sessions.pick(meta.sessionId, name);
 		if (!session) throw new Error("No pi session is connected: start pi (or run /artifacts in pi)");
 		const body: BridgeCallRequest = {
 			name,

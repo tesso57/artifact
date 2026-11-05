@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { nodeBinary, nodeTsFlags } from "../../../shared/node.ts";
-import { runtimeRoot } from "../../../extension/daemon-client.ts";
+import { DaemonClient, runtimeRoot } from "../../../extension/daemon-client.ts";
 import { exportTarget, formatExport } from "../../../extension/tools/artifact-export.ts";
 import { formatWriteResult } from "../../../extension/tools/artifact-write.ts";
+import { openerCommand } from "../../../extension/open.ts";
 
 const meta = { id: "x", title: "X", createdAt: 1, updatedAt: 1, mcp: ["gh.*"] };
 const base = { meta, created: true, path: "/p/x/index.tsx", url: "http://h/a/x", link: "http://h/__pi/login?t=1", runtimeErrors: [], observed: true };
@@ -61,6 +62,28 @@ describe("runtimeRoot", () => {
 			expect(runtimeRoot(pkg)).toBe(root); // cached
 		} finally {
 			delete process.env.PI_ARTIFACTS_RUNTIME;
+		}
+	});
+});
+
+describe("openerCommand", () => {
+	it("passes the whole URL (with &) as one argument on every platform", () => {
+		const url = "http://127.0.0.1:5178/__pi/login?t=abc&next=%2Fa%2Fx";
+		expect(openerCommand(url, "win32")).toEqual(["rundll32", ["url.dll,FileProtocolHandler", url]]);
+		expect(openerCommand(url, "darwin")).toEqual(["open", [url]]);
+		expect(openerCommand(url, "linux")).toEqual(["xdg-open", [url]]);
+	});
+});
+
+describe("DaemonClient", () => {
+	it("background calls never start a viewer", async () => {
+		process.env.PI_ARTIFACTS_STATE = mkdtempSync(join(tmpdir(), "pi-state-"));
+		try {
+			const client = new DaemonClient();
+			expect(await client.running()).toBe(false);
+			await expect(client.api("/sessions/register", {}, { start: false })).rejects.toThrow(/not running/);
+		} finally {
+			delete process.env.PI_ARTIFACTS_STATE;
 		}
 	});
 });

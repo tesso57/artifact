@@ -4,13 +4,13 @@
  *   node test/e2e/run.ts            (this checkout)
  *   PI_ARTIFACTS_PACKAGE=… node …   (an installed copy, see pack.ts)
  */
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { launchBrowser } from "./browser.ts";
-import { openLink, startPi } from "./pi.ts";
+import { openLink, PACKAGE, startPi } from "./pi.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Keep test artifacts, memory and the daemon's state out of ~/.pi/artifacts.
@@ -61,13 +61,24 @@ try {
 	if (radius !== "0.1234rem") throw new Error(`theme.css not applied (--radius: ${radius})`);
 	step("login link → page renders MCP data, Tailwind classes, recharts and theme.css");
 
-	// Artifacts (any script in the page) cannot read files outside the viewer's own roots.
-	const outside = await page.evaluate(async (paths) => {
-		const out: Record<string, number> = {};
-		for (const p of paths) out[p] = (await fetch(`/@fs${p}`)).status;
-		return out;
-	}, ["/etc/hostname", `${dirname(dirname(here))}/package.json`.replace(/\/[^/]+\/package.json$/, "/x/package.json"), join(dir, ".state", "memory.sqlite")]);
-	if (Object.values(outside).some((s) => s !== 403 && s !== 404)) throw new Error(`readable outside the allow list: ${JSON.stringify(outside)}`);
+	// Artifacts (any script in the page) cannot read real files outside the viewer's roots:
+	// next to the package (e.g. a home folder holding a checkout), in temp, or daemon state.
+	// (When installed, the package's parent is the dependency folder, which is served on
+	// purpose; probe the folder that holds it instead.)
+	const parent = basename(dirname(PACKAGE)) === "node_modules" ? dirname(dirname(PACKAGE)) : dirname(PACKAGE);
+	const besidePackage = join(parent, `.pi-artifacts-probe-${process.pid}.txt`);
+	const inTemp = join(mkdtempSync(join(tmpdir(), "pi-probe-")), "secret.txt");
+	for (const f of [besidePackage, inTemp]) writeFileSync(f, "secret");
+	try {
+		const outside = await page.evaluate(async (paths) => {
+			const out: Record<string, number> = {};
+			for (const p of paths) out[p] = (await fetch(`/@fs${p}`)).status;
+			return out;
+		}, [besidePackage, inTemp, join(dir, ".state", "memory.sqlite"), join(dir, ".state", "viewer.json")]);
+		if (Object.values(outside).some((s) => s !== 403)) throw new Error(`readable outside the allow list: ${JSON.stringify(outside)}`);
+	} finally {
+		rmSync(besidePackage, { force: true });
+	}
 	step("/@fs outside the viewer, artifacts and templates is refused");
 
 	await page.getByRole("button", { name: "Reverse" }).click();

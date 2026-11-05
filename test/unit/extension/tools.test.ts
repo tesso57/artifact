@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { nodeBinary, nodeTsFlags } from "../../../shared/node.ts";
-import { DaemonClient, runtimeRoot } from "../../../extension/daemon-client.ts";
+import { compatible, DaemonClient, runtimeRoot } from "../../../extension/daemon-client.ts";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { PROTOCOL_VERSION } from "../../../shared/protocol.ts";
 import { exportTarget, formatExport } from "../../../extension/tools/artifact-export.ts";
 import { formatWriteResult } from "../../../extension/tools/artifact-write.ts";
 import { openerCommand } from "../../../extension/open.ts";
@@ -84,6 +87,49 @@ describe("DaemonClient", () => {
 			await expect(client.api("/sessions/register", {}, { start: false })).rejects.toThrow(/not running/);
 		} finally {
 			delete process.env.PI_ARTIFACTS_STATE;
+		}
+	});
+});
+
+describe("daemon compatibility", () => {
+	const ours = (JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")) as { version: string }).version;
+	const bump = (v: string, d: number) => v.split(".").map((n, i) => (i === 1 ? Math.max(0, Number(n) + d) : i === 2 ? 0 : Number(n))).join(".");
+
+	it("uses daemons of the same protocol that are not older, never older or other protocols", () => {
+		expect(compatible({ protocol: PROTOCOL_VERSION, version: ours })).toBe(true);
+		expect(compatible({ protocol: PROTOCOL_VERSION, version: bump(ours, 1) })).toBe(true);
+		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.0.1" })).toBe(false);
+		expect(compatible({ protocol: PROTOCOL_VERSION + 1, version: bump(ours, 1) })).toBe(false);
+		expect(compatible(undefined)).toBe(false);
+	});
+
+	it("finds a running daemon through the state file, and re-reads it for background calls", async () => {
+		const state = mkdtempSync(join(tmpdir(), "pi-state-"));
+		let secret = "s1";
+		const server = createServer((req, res) => {
+			if (req.headers["x-pi-artifacts-secret"] !== secret) {
+				res.statusCode = 401;
+				return res.end("{}");
+			}
+			res.setHeader("content-type", "application/json");
+			res.end(JSON.stringify(req.url === "/__pi/api/health" ? { protocol: PROTOCOL_VERSION, version: ours } : { ok: true }));
+		});
+		await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+		const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+		const writeState = () => writeFileSync(join(state, "viewer.json"), JSON.stringify({ protocol: PROTOCOL_VERSION, pid: 1, port: 0, url, secret, version: ours, startedAt: 0 }));
+		process.env.PI_ARTIFACTS_STATE = state;
+		try {
+			writeState();
+			const client = new DaemonClient();
+			expect(await client.running()).toBe(true);
+			expect(await client.api("/sessions/register", {}, { start: false })).toEqual({ ok: true });
+			// The daemon is replaced (new secret): the next background call picks it up.
+			secret = "s2";
+			writeState();
+			expect(await client.api("/sessions/register", {}, { start: false })).toEqual({ ok: true });
+		} finally {
+			delete process.env.PI_ARTIFACTS_STATE;
+			await new Promise((r) => server.close(r));
 		}
 	});
 });

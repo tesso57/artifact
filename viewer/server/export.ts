@@ -154,7 +154,7 @@ function bundleInWorker(entry: string, sources: string[]): Promise<{ js: string;
 export async function exportArtifact(
 	memory: Memory,
 	meta: ArtifactMeta,
-	opts: { themeCss?: string; outFile?: string } = {},
+	opts: { themeCss?: string; outFile?: string; overwrite?: boolean } = {},
 ): Promise<ExportResult> {
 	const { entry } = artifactPaths(meta.id);
 	const bundle = await bundleInWorker(entry, [entry]);
@@ -171,7 +171,13 @@ export async function exportArtifact(
 		},
 	};
 	if (opts.outFile) {
-		await writeFile(opts.outFile, html, "utf8");
+		// "wx": never replace (or write through a symlink at) an existing path unless asked.
+		try {
+			await writeFile(opts.outFile, html, { encoding: "utf8", flag: opts.overwrite ? "w" : "wx" });
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`${opts.outFile} already exists`);
+			throw e;
+		}
 		result.file = opts.outFile;
 	}
 	return result;

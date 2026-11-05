@@ -63,8 +63,13 @@ export const reportErrorFn = createServerFn({ method: "POST" })
 
 type Scoped = { scope: string; key: string; from?: string };
 
+function scoped<T extends { key: unknown }>(d: T): T & { key: string } {
+	if (typeof d.key !== "string" || d.key.length === 0 || d.key.length > 512) throw new Error("Memory keys are non-empty strings (max 512)");
+	return d as T & { key: string };
+}
+
 export const memoryGetFn = createServerFn({ method: "POST" })
-	.validator((d: Scoped) => d)
+	.validator((d: Scoped) => scoped(d))
 	.handler(({ data }) => {
 		const value = ctx().memory.get(ctx().scope(data.scope, data.from, data.key), data.key);
 		// `found` keeps a stored `null` apart from a missing key (undefined does not serialize).
@@ -72,11 +77,12 @@ export const memoryGetFn = createServerFn({ method: "POST" })
 	});
 
 export const memorySetFn = createServerFn({ method: "POST" })
-	.validator((d: Scoped & { value: unknown }) => d)
-	.handler(({ data }) => ({ updatedAt: ctx().memory.set(ctx().scope(data.scope), data.key, data.value === undefined ? null : data.value).updatedAt }));
+	.validator((d: Scoped & { value: unknown }) => scoped(d))
+	// undefined (dropped by serialization) deletes the key, as in exports.
+	.handler(({ data }) => ({ updatedAt: ctx().memory.set(ctx().scope(data.scope), data.key, data.value).updatedAt }));
 
 export const memoryDeleteFn = createServerFn({ method: "POST" })
-	.validator((d: Scoped) => d)
+	.validator((d: Scoped) => scoped(d))
 	.handler(({ data }) => ({ deleted: ctx().memory.delete(ctx().scope(data.scope), data.key) }));
 
 export const memoryListFn = createServerFn({ method: "POST" })

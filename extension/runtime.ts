@@ -25,6 +25,10 @@ export class ArtifactsRuntime {
 
 	constructor(pi: ExtensionAPI) {
 		this.pi = pi;
+		// A daemon this session started (e.g. after an idle exit) must learn about it at once.
+		this.daemon.onStarted = () => {
+			if (this.bridge) void this.sendRegistration(false).catch(() => {});
+		};
 	}
 
 	get id(): string {

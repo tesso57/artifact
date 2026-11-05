@@ -91,7 +91,8 @@ export function useMemory<T>(
 			const value = typeof next === "function" ? (next as (p: T) => T)(prev) : next;
 			// A read still in flight (e.g. a focus refetch) must not undo this write.
 			void qc.cancelQueries({ queryKey });
-			qc.setQueryData(queryKey, value);
+			// Setting undefined deletes the key; the hook then shows `initial` again.
+			qc.setQueryData(queryKey, value === undefined ? initialRef.current : value);
 			mutate(value);
 		},
 		[qc, queryKey, mutate],

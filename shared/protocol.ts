@@ -105,12 +105,15 @@ export function normalizeMcpToolName(nameOrServer: string, tool?: string): strin
 	return dot > 0 ? `mcp__${nameOrServer.slice(0, dot)}__${nameOrServer.slice(dot + 1)}` : nameOrServer;
 }
 
-/** Whether `toolName` (pi name) matches an artifact's `mcp` allowlist. */
+/**
+ * Whether `toolName` (pi name) matches an artifact's `mcp` allowlist: `server.tool` or
+ * `server.*`. There is no global `*` — artifact ids are claims, so one artifact allowing
+ * everything would let every artifact reach every tool.
+ */
 export function mcpAllowed(allow: readonly string[] | undefined, toolName: string): boolean {
 	const parts = parseMcpToolName(toolName);
 	if (!parts || !allow?.length) return false;
 	return allow.some((pattern) => {
-		if (pattern === "*") return true;
 		const p = normalizeMcpToolName(pattern);
 		if (p.endsWith("__*")) return toolName.startsWith(p.slice(0, -1));
 		if (pattern.endsWith(".*")) return parts.server === pattern.slice(0, -2);

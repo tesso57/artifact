@@ -12,6 +12,7 @@ import type { ViteDevServer } from "vite";
 import { isValidId, SHARED_SCOPE, TEMPLATE_PREFIX } from "../../shared/ids.ts";
 import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, fsUrl, userTemplatesDir } from "../../shared/paths.ts";
 import {
+	SESSION_COOKIE,
 	type ArtifactMeta,
 	BRIDGE_TOKEN_HEADER,
 	type BridgeCallRequest,
@@ -30,12 +31,17 @@ import { artifactPaths, deleteArtifact, listArtifacts, readMeta, type WriteArtif
 import { getTemplate } from "./templates.ts";
 
 const CONTEXT_KEY = Symbol.for("pi-artifacts.daemon");
+/** Only same-origin paths ("/a/x"), never "//host", "/\\host" or control characters. */
+function localPath(next: string): string {
+	return /^\/(?![/\\])[^\s\\\u0000-\u001f\u007f]*$/.test(next) ? next : "/";
+}
+
 /** A browser session (cookie) lasts this long; the daemon's restart also ends it. */
 const BROWSER_SESSION_TTL_MS = 7 * 24 * 3600_000;
 /** Open links (one-time tokens in URLs given to people) stay valid this long. */
 const LINK_TTL_MS = 30 * 60_000;
-/** A page that pinged within this window counts as open. */
-const VIEWING_TTL_MS = 20_000;
+/** A page that pinged within this window counts as open (background tabs are throttled to ~1/min). */
+const VIEWING_TTL_MS = 90_000;
 
 interface WriteResult {
 	meta: ArtifactMeta;
@@ -57,8 +63,8 @@ export class DaemonContext {
 	lastActivity = Date.now();
 	/** Set by the daemon entry: how `/__pi/api/shutdown` stops it (works on Windows too). */
 	onShutdown: () => void = () => process.exit(0);
-	/** One-time login tokens (in links given to people) → expiry. */
-	private links = new Map<string, number>();
+	/** One-time login tokens (in links given to people) → expiry and where they lead. */
+	private links = new Map<string, { exp: number; next: string }>();
 	/** Browser sessions (cookie values) → expiry. Distinct from the API secret. */
 	private browserSessions = new Map<string, number>();
 	private errors = new Map<string, RuntimeError[]>();
@@ -91,25 +97,45 @@ export class DaemonContext {
 
 	// ---- links ---------------------------------------------------------------------
 
-	/** A URL that logs the browser in (sets the session cookie) and opens `next`. */
+	/** Cookie name, per port: two daemons (e.g. dev and tests) must not log each other out. */
+	get cookieName(): string {
+		return `${SESSION_COOKIE}_${this.port}`;
+	}
+
+	private pruneLinks(now = Date.now()) {
+		for (const [t, l] of this.links) if (l.exp < now) this.links.delete(t);
+	}
+
+	/**
+	 * A URL that logs the browser in and opens `next`. The destination is stored with the
+	 * token (the URL only carries the token), so links cannot be turned into redirects.
+	 */
 	link(next = "/"): string {
+		this.pruneLinks();
 		const token = randomBytes(18).toString("base64url");
-		this.links.set(token, Date.now() + LINK_TTL_MS);
-		return `${this.origin}/__pi/login?t=${token}&next=${encodeURIComponent(next)}`;
+		this.links.set(token, { exp: Date.now() + LINK_TTL_MS, next: localPath(next) });
+		return `${this.origin}/__pi/login?t=${token}`;
+	}
+
+	/** Where a link token leads, if it is valid (does not use it up). */
+	linkTarget(token: string | null): string | undefined {
+		this.pruneLinks();
+		return token ? this.links.get(token)?.next : undefined;
 	}
 
 	/**
 	 * Exchange a one-time link token for a browser session id (the cookie value). Tokens are
 	 * deleted on use, so a link that leaked (logs, model context) stops working once opened.
 	 */
-	login(token: string | null): string | undefined {
+	login(token: string | null): { session: string; next: string } | undefined {
 		const now = Date.now();
-		for (const [t, e] of this.links) if (e < now) this.links.delete(t);
-		if (!token || !this.links.has(token)) return undefined;
+		this.pruneLinks(now);
+		const link = token ? this.links.get(token) : undefined;
+		if (!token || !link) return undefined;
 		this.links.delete(token);
 		const session = randomBytes(24).toString("base64url");
 		this.browserSessions.set(session, now + BROWSER_SESSION_TTL_MS);
-		return session;
+		return { session, next: link.next };
 	}
 
 	/** Whether a cookie value is a live browser session. */
@@ -239,7 +265,7 @@ export class DaemonContext {
 	}
 
 	mcpStatus() {
-		return { connected: this.sessions.size > 0 };
+		return { connected: this.sessions.size > 0, ready: this.sessions.anyReady };
 	}
 
 	async mcpTools(): Promise<McpToolInfo[]> {
@@ -288,10 +314,10 @@ export class DaemonContext {
 
 	// ---- export ----------------------------------------------------------------------
 
-	async exportArtifact(id: string, outFile?: string): Promise<ExportResult> {
+	async exportArtifact(id: string, outFile?: string, overwrite = false): Promise<ExportResult> {
 		const meta = await readMeta(id);
 		if (!meta) throw new Error(`No artifact "${id}"`);
-		return exportArtifact(this.memory, meta, { themeCss: await this.themeCss(), outFile });
+		return exportArtifact(this.memory, meta, { themeCss: await this.themeCss(), outFile, overwrite });
 	}
 
 	// ---- design ----------------------------------------------------------------------

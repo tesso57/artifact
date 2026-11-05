@@ -27,7 +27,7 @@ export interface Backend {
 	memorySet(scope: string, key: string, value: unknown): Promise<void>;
 	memoryDelete(scope: string, key: string): Promise<boolean>;
 	memoryList(scope: string, prefix?: string, from?: string): Promise<MemoryRow[]>;
-	mcpStatus(): Promise<{ connected: boolean }>;
+	mcpStatus(): Promise<{ connected: boolean; ready?: boolean }>;
 	mcpTools(): Promise<McpToolInfo[]>;
 	mcpCall(name: string, args: Record<string, unknown>, artifactId: string): Promise<McpCallResult>;
 }

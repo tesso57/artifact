@@ -32,6 +32,11 @@ export class SessionRegistry {
 		return this.live().length;
 	}
 
+	/** Whether some live session can run tools right now. */
+	get anyReady(): boolean {
+		return this.live().some((s) => s.reg.ready !== false);
+	}
+
 	/**
 	 * Where an MCP call should go: the preferred session (the artifact's writer) if it can
 	 * run the tool, else the most recently joined session that can, else any live session

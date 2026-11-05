@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DAEMON_SECRET_HEADER, SESSION_COOKIE } from "../../../shared/protocol.ts";
+import { DAEMON_SECRET_HEADER } from "../../../shared/protocol.ts";
 import { apiMiddleware, guardMiddleware } from "../../../viewer/server/api.ts";
 import { DaemonContext } from "../../../viewer/server/context.ts";
 import { Memory } from "../../../viewer/server/memory.ts";
@@ -34,10 +34,10 @@ afterAll(async () => {
 });
 
 let session = "";
-const cookie = () => ({ cookie: `${SESSION_COOKIE}=${session}` });
+const cookie = () => ({ cookie: `${ctx.cookieName}=${session}` });
 async function login(next = "/") {
 	const res = await fetch(new URL(ctx.link(next)), { redirect: "manual" });
-	return { res, value: /pi_artifacts=([^;]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? "" };
+	return { res, value: /pi_artifacts_\d+=([^;]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? "" };
 }
 const secret = () => ({ [DAEMON_SECRET_HEADER]: ctx.secret, "content-type": "application/json" });
 
@@ -55,24 +55,27 @@ describe("guard", () => {
 		expect(res.status).toBe(302);
 		expect(res.headers.get("location")).toBe("/a/x");
 		expect(res.headers.get("set-cookie")).toMatch(/HttpOnly; SameSite=Strict/);
-		session = /pi_artifacts=([^;]+)/.exec(res.headers.get("set-cookie") ?? "")![1];
+		session = /pi_artifacts_\d+=([^;]+)/.exec(res.headers.get("set-cookie") ?? "")![1];
 		expect(session).not.toBe(ctx.secret);
 		expect(session).not.toContain(encodeURIComponent(ctx.secret));
-		// Single use: the same link does not log in again.
+		// Single use: the same link does not log a new browser in...
 		expect((await fetch(link, { redirect: "manual" })).status).toBe(401);
+		// ...but a browser that is already signed in is simply sent on (clicking it again).
+		const again = await fetch(link, { redirect: "manual", headers: cookie() });
+		expect(again.status).toBe(302);
 		expect((await fetch(`${base}/__pi/login?t=bogus`, { redirect: "manual" })).status).toBe(401);
 		// The master secret is not a login token.
 		expect((await fetch(`${base}/__pi/login?t=${ctx.secret}`, { redirect: "manual" })).status).toBe(401);
 	});
 
 	it("only redirects to local paths", async () => {
-		for (const next of ["//evil.example", "/\\evil.example", "https://evil.example"]) {
+		for (const next of ["//evil.example", "/\\evil.example", "https://evil.example", "/\t/evil.example", "/ /x"]) {
 			expect((await login(next)).res.headers.get("location")).toBe("/");
 		}
 	});
 
 	it("does not accept the API secret as a cookie, or a cookie as the API secret", async () => {
-		expect((await fetch(`${base}/`, { headers: { cookie: `${SESSION_COOKIE}=${ctx.secret}` } })).status).toBe(401);
+		expect((await fetch(`${base}/`, { headers: { cookie: `${ctx.cookieName}=${ctx.secret}` } })).status).toBe(401);
 		expect((await fetch(`${base}/__pi/api/health`, { headers: { [DAEMON_SECRET_HEADER]: session } })).status).toBe(401);
 	});
 
@@ -119,6 +122,8 @@ describe("api", () => {
 		const existing = join(dir, "exists.html");
 		await writeFile(existing, "keep");
 		expect(await (await post("/export", { id: "ex", outFile: existing })).json()).toMatchObject({ error: expect.stringMatching(/exists/) });
+		const { readFile } = await import("node:fs/promises");
+		expect(await readFile(existing, "utf8")).toBe("keep");
 	});
 
 	it("reserves template- ids so artifacts cannot borrow a template's allowlist", async () => {

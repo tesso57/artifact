@@ -8,11 +8,11 @@
  * State: <state>/viewer.json { pid, port, url, secret, version }; <state>/viewer.lock.
  * Exits after PI_ARTIFACTS_IDLE_MS (default 15 min) without sessions or requests.
  */
-import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createServer } from "vite";
-import { daemonStatePath, PACKAGE_ROOT, stateDir } from "../../shared/paths.ts";
+import { daemonStatePath, PACKAGE_ROOT, runtimeDir, stateDir } from "../../shared/paths.ts";
 import { type DaemonState, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import { DaemonContext } from "./context.ts";
 import { VIEWER_DIR } from "./vite-shared.ts";
@@ -58,6 +58,19 @@ if (!acquireLock(lockFile)) {
 	console.log("pi-artifacts viewer is already running");
 	process.exit(0);
 }
+
+// Runtime copies (npm installs): delete old ones nobody can be using. This daemon holds the
+// lock, so no other daemon runs; copies younger than an hour may be about to be started.
+try {
+	const runtimes = runtimeDir();
+	const mine = resolve(PACKAGE_ROOT);
+	if (dirname(mine) === resolve(runtimes)) {
+		for (const name of readdirSync(runtimes)) {
+			const dir = join(runtimes, name);
+			if (dir !== mine && Date.now() - statSync(dir).mtimeMs > 3600_000) rmSync(dir, { recursive: true, force: true });
+		}
+	}
+} catch {}
 
 const ctx = new DaemonContext(version);
 DaemonContext.install(ctx);

@@ -24,7 +24,7 @@ describe("mcpAllowed", () => {
 		expect(mcpAllowed(["gh.search"], "mcp__gh__delete")).toBe(false);
 		expect(mcpAllowed(["gh.*"], "mcp__gh__delete")).toBe(true);
 		expect(mcpAllowed(["gh.*"], "mcp__ghx__delete")).toBe(false);
-		expect(mcpAllowed(["*"], "mcp__any__tool")).toBe(true);
+		expect(mcpAllowed(["*"], "mcp__any__tool")).toBe(false);
 	});
 	it("denies by default and never allows non-MCP tools", () => {
 		expect(mcpAllowed(undefined, "mcp__gh__search")).toBe(false);

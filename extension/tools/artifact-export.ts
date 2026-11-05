@@ -34,7 +34,7 @@ export function registerArtifactExport(pi: ExtensionAPI, runtime: ArtifactsRunti
 		parameters: Type.Object({
 			id: Type.String({ description: "Artifact id" }),
 			path: Type.Optional(Type.String({ description: "Output .html file; default <cwd>/<id>.html" })),
-			overwrite: Type.Optional(Type.Boolean({ description: "Replace the file if it exists (ask the user first)" })),
+			overwrite: Type.Optional(Type.Boolean({ description: "Replace the file if it exists (only after the user agreed)" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			runtime.captureToolContext(ctx);

@@ -53,7 +53,11 @@ export function registerArtifactsCommand(pi: ExtensionAPI, runtime: ArtifactsRun
 					if (!arg) return ctx.ui.notify("Usage: /artifacts export <id> [file.html]", "warning");
 					ctx.ui.notify(`Exporting ${arg}…`, "info");
 					const outFile = exportTarget(ctx.cwd, arg, path);
-					const overwrite = existsSync(outFile) && (await ctx.ui.confirm("Overwrite?", `${outFile} exists. Replace it?`));
+					let overwrite = false;
+					if (existsSync(outFile)) {
+						if (!(await ctx.ui.confirm("Overwrite?", `${outFile} exists. Replace it?`))) return ctx.ui.notify("Export cancelled", "info");
+						overwrite = true;
+					}
 					const r = await runtime.daemon.api<ExportResponse>("/export", { id: arg, outFile, overwrite });
 					return ctx.ui.notify(formatExport(r), "info");
 				}

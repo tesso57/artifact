@@ -60,7 +60,7 @@ export function registerArtifactWrite(pi: ExtensionAPI, runtime: ArtifactsRuntim
 			description: Type.Optional(Type.String({ description: "One sentence shown in the gallery" })),
 			mcp: Type.Optional(
 				Type.Array(Type.String(), {
-					description: 'MCP tools the artifact may call: "server.tool", "server.*" or "*". Calls outside this list fail.',
+					description: 'MCP tools the artifact may call: "server.tool" or "server.*". Calls outside this list fail.',
 				}),
 			),
 		}),

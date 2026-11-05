@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { SessionBanner } from "../components/session-banner";
 import styles from "../styles.css?url";
 
 const themeScript = `(()=>{try{const t=localStorage.getItem("pi-theme");const d=t?t==="dark":matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d)}catch{}})()`;
@@ -27,6 +28,7 @@ function RootComponent() {
 	return (
 		<RootDocument>
 			<QueryClientProvider client={queryClient}>
+				<SessionBanner />
 				<Outlet />
 			</QueryClientProvider>
 		</RootDocument>

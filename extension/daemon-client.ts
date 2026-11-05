@@ -29,7 +29,7 @@ interface Health {
 }
 
 /** A daemon this client can use: same protocol, and not older than this package. */
-function compatible(h: Health | undefined): boolean {
+export function compatible(h: Health | undefined): boolean {
 	return !!h && h.protocol === PROTOCOL_VERSION && compareVersions(h.version, PACKAGE_VERSION) >= 0;
 }
 
@@ -109,16 +109,15 @@ export function runtimeRoot(root = PACKAGE_ROOT): string {
 	} catch {
 		rmSync(tmp, { recursive: true, force: true }); // another session won the race
 	}
-	// Old copies (other stamps) are no longer needed.
-	for (const old of readdirSync(runtimeDir())) {
-		if (old !== stamp && !old.includes(".tmp-")) rmSync(join(runtimeDir(), old), { recursive: true, force: true });
-	}
+	// Old copies are pruned by the daemon once it holds the lock (it knows which copy it runs).
 	return target;
 }
 
 export class DaemonClient {
 	private state: DaemonState | undefined;
 	private starting: Promise<DaemonState> | undefined;
+	/** Called after this client started a new daemon (the session re-registers right away). */
+	onStarted: (() => void) | undefined;
 
 	get url(): string | undefined {
 		return this.state?.url;
@@ -154,7 +153,16 @@ export class DaemonClient {
 				for (let i = 0; i < 40 && (await healthy(existing)); i++) await new Promise((r) => setTimeout(r, 100));
 			}
 		}
-		return (this.state = await this.spawn());
+		// A daemon that holds the lock but is not answering yet (starting, or busy): wait for it
+		// rather than racing it with a second spawn.
+		for (let i = 0; i < 100 && lockOwnerAlive(); i++) {
+			const state = readState();
+			if (state && compatible(await healthy(state))) return (this.state = state);
+			await new Promise((r) => setTimeout(r, 200));
+		}
+		this.state = await this.spawn();
+		this.onStarted?.();
+		return this.state;
 	}
 
 	private async spawn(): Promise<DaemonState> {
@@ -200,9 +208,10 @@ export class DaemonClient {
 		let state: DaemonState;
 		if (start) state = await this.ensure();
 		else {
-			const current = this.state ?? readState();
+			// Background calls re-read the state file: a replacement daemon has a new secret.
+			const current = readState();
 			if (!current) throw new Error("The artifact viewer is not running");
-			state = current;
+			state = this.state = current;
 		}
 		let res: Response;
 		try {
@@ -219,6 +228,7 @@ export class DaemonClient {
 			await this.ensure();
 			return this.api<T>(path, body, { start: false });
 		}
+		if (res.status === 401) this.state = undefined; // the daemon was replaced
 		const json = (await res.json().catch(() => ({}))) as T & { error?: string };
 		if (!res.ok) throw new Error(json.error ?? `Viewer API ${path}: HTTP ${res.status}`);
 		return json;

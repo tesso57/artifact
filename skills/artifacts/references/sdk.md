@@ -21,7 +21,7 @@ import { useMemory, useMemoryList, memory, useMcp, useMcpMutation, callMcp, useM
 
 - Names: `"server.tool"` or `"mcp__server__tool"`.
 - **Allowlist:** an artifact may only call the tools listed in `artifact_write`'s `mcp`
-  parameter (`"server.tool"`, `"server.*"`, `"*"`). Anything else fails with an
+  parameter (`"server.tool"` or `"server.*"`). Anything else fails with an
   "allowlist" error — add the tool and write again.
 - **Approval:** a tool runs unasked only when its server marks it read-only and
   closed-world; otherwise pi asks the user once per tool per session. Put writes behind a

@@ -80,11 +80,6 @@ export async function readMeta(id: string, root = artifactsDir()): Promise<Artif
 	}
 }
 
-export async function readCode(id: string, root = artifactsDir()): Promise<string | undefined> {
-	const { entry } = artifactPaths(id, root);
-	return existsSync(entry) ? readFile(entry, "utf8") : undefined;
-}
-
 /** All artifacts, most recently updated first. */
 export async function listArtifacts(root = artifactsDir()): Promise<ArtifactMeta[]> {
 	if (!existsSync(root)) return [];

@@ -11,8 +11,15 @@ export function McpBadge() {
 			</Badge>
 		);
 	}
+	if (!data.ready) {
+		return (
+			<Badge variant="outline" title="pi is connected; MCP works after the agent uses an artifact tool in that session">
+				<PlugZap className="text-amber-500" /> pi waiting
+			</Badge>
+		);
+	}
 	return (
-		<Badge variant="outline" title="A pi session is connected">
+		<Badge variant="outline" title="A pi session can run MCP tools">
 			<PlugZap className="text-emerald-500" /> pi connected
 		</Badge>
 	);

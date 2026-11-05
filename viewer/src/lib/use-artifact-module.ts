@@ -5,8 +5,11 @@ type LoadedArtifact =
 	| { status: "ready"; Component: ComponentType }
 	| { status: "error"; error: unknown };
 
+/** A React component: a function, or a memo/forwardRef/lazy object. */
+const isComponent = (c: unknown) => typeof c === "function" || (typeof c === "object" && c !== null && "$$typeof" in c);
+
 function toLoaded(mod: { default?: unknown }): LoadedArtifact {
-	return typeof mod.default === "function"
+	return isComponent(mod.default)
 		? { status: "ready", Component: mod.default as ComponentType }
 		: { status: "error", error: new Error("The artifact must `export default` a React component") };
 }
@@ -62,9 +65,9 @@ export function useArtifactModule(url: string, version: number): LoadedArtifact 
 						const next = toLoaded(mod);
 						// Fast Refresh swaps named components in place (keeping state); anonymous ones are
 						// not registered with it, and renamed ones are new components: mount those.
-						const named = (c: { name: string }) => c.name !== "" && c.name !== "default";
+						const named = (c: unknown) => typeof c === "function" && !!c.name && c.name !== "default";
 						const sameName =
-							prev.status === "ready" && next.status === "ready" && named(next.Component) && prev.Component.name === next.Component.name;
+							prev.status === "ready" && next.status === "ready" && named(next.Component) && (prev.Component as { name?: string }).name === (next.Component as { name?: string }).name;
 						return sameName ? prev : next;
 					}),
 				(error) => setState({ status: "error", error }),

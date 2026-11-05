@@ -10,7 +10,7 @@ import { resolve } from "node:path";
 import type { Connect } from "vite";
 import { assertArtifactId } from "../../shared/ids.ts";
 import { BUNDLED_TEMPLATES_DIR, designDir, userTemplatesDir } from "../../shared/paths.ts";
-import { DAEMON_SECRET_HEADER, PROTOCOL_VERSION, SESSION_COOKIE, type SessionRegistration } from "../../shared/protocol.ts";
+import { DAEMON_SECRET_HEADER, PROTOCOL_VERSION, type SessionRegistration } from "../../shared/protocol.ts";
 import type { DaemonContext } from "./context.ts";
 import { listArtifacts } from "./store.ts";
 import { deleteTemplate, getTemplate, listTemplates, saveTemplate } from "./templates.ts";
@@ -77,7 +77,8 @@ export function guardMiddleware(ctx: DaemonContext): Connect.NextHandleFunction 
 		// Vite's open-in-editor endpoint would let page scripts open files in the user's editor.
 		if (path.startsWith("/__open-in-editor")) return send(res, 403, { error: "Forbidden" });
 		if (ctx.isSecret(req.headers[DAEMON_SECRET_HEADER])) return next();
-		if (ctx.browserSession(cookie(req, SESSION_COOKIE)) && !path.startsWith("/__pi/api/")) {
+		if (path === "/__pi/session") return send(res, ctx.browserSession(cookie(req, ctx.cookieName)) ? 200 : 401, {});
+		if (ctx.browserSession(cookie(req, ctx.cookieName)) && !path.startsWith("/__pi/api/")) {
 			if (req.method !== "GET" && req.method !== "HEAD" && !sameOrigin(req, ctx)) {
 				return send(res, 403, { error: "Cross-origin request refused" });
 			}
@@ -114,7 +115,7 @@ const routes: Record<string, Handler> = {
 		ctx.sessions.remove(body.sessionId);
 		return { ok: true };
 	},
-	"POST /link": (ctx, body: { next?: string }) => ({ url: ctx.link(body.next?.startsWith("/") ? body.next : "/") }),
+	"POST /link": (ctx, body: { next?: string }) => ({ url: ctx.link(body.next ?? "/") }),
 
 	"GET /artifacts": () => listArtifacts(),
 	"POST /artifacts/write": async (ctx, body) => {
@@ -139,8 +140,9 @@ const routes: Record<string, Handler> = {
 		assertArtifactId(body.id);
 		const outFile = body.outFile ? resolve(body.outFile) : undefined;
 		if (outFile && !/\.html?$/i.test(outFile)) throw new Error("Exports must be written to an .html file");
-		if (outFile && existsSync(outFile) && !body.overwrite) throw new Error(`${outFile} exists; pass overwrite: true to replace it`);
-		const r = await ctx.exportArtifact(body.id, outFile);
+		// Fail fast before bundling; the write itself also refuses to replace files ("wx").
+		if (outFile && !body.overwrite && existsSync(outFile)) throw new Error(`${outFile} already exists`);
+		const r = await ctx.exportArtifact(body.id, outFile, body.overwrite === true);
 		return { file: r.file, bytes: r.bytes, embedded: r.embedded };
 	},
 
@@ -196,12 +198,17 @@ export function apiMiddleware(ctx: DaemonContext): Connect.NextHandleFunction {
 		const url = new URL(req.url ?? "/", ctx.origin);
 
 		if (url.pathname === "/__pi/login") {
-			const session = ctx.login(url.searchParams.get("t"));
-			if (!session) return unauthorized(res);
-			const target = url.searchParams.get("next") ?? "/";
+			const token = url.searchParams.get("t");
 			res.statusCode = 302;
-			res.setHeader("set-cookie", `${SESSION_COOKIE}=${session}; Path=/; HttpOnly; SameSite=Strict`);
-			res.setHeader("location", /^\/(?![/\\])[^\\]*$/.test(target) ? target : "/");
+			if (ctx.browserSession(cookie(req, ctx.cookieName))) {
+				// Already signed in (e.g. the same link clicked again): just go there.
+				res.setHeader("location", ctx.linkTarget(token) ?? "/");
+				return res.end();
+			}
+			const login = ctx.login(token);
+			if (!login) return unauthorized(res);
+			res.setHeader("set-cookie", `${ctx.cookieName}=${login.session}; Path=/; HttpOnly; SameSite=Strict`);
+			res.setHeader("location", login.next);
 			return res.end();
 		}
 		if (url.pathname === "/__pi/theme.css") {

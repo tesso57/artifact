@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { assertArtifactId, slugify } from "../../../shared/ids.ts";
-import { deleteArtifact, listArtifacts, readCode, readMeta, writeArtifact } from "../../../viewer/server/store.ts";
+import { readFile } from "node:fs/promises";
+import { deleteArtifact, listArtifacts, readMeta, writeArtifact } from "../../../viewer/server/store.ts";
+
+const readCode = (id: string, root: string) => readFile(join(root, id, "index.tsx"), "utf8");
 
 let root: string;
 beforeEach(async () => {

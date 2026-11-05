@@ -53,6 +53,8 @@ function useRuntimeFeedback(id: string) {
 		const ping = () => void pingFn({ data: id }).catch(() => {});
 		ping();
 		const timer = setInterval(ping, 8000);
+		document.addEventListener("visibilitychange", ping);
+		import.meta.hot?.on("vite:beforeUpdate", ping);
 		const onError = (e: ErrorEvent) => report(id, e.error ?? e.message);
 		const onRejection = (e: PromiseRejectionEvent) => report(id, e.reason);
 		window.addEventListener("error", onError);
@@ -60,6 +62,8 @@ function useRuntimeFeedback(id: string) {
 		return () => {
 			setCurrentArtifact(undefined);
 			clearInterval(timer);
+			document.removeEventListener("visibilitychange", ping);
+			import.meta.hot?.off("vite:beforeUpdate", ping);
 			window.removeEventListener("error", onError);
 			window.removeEventListener("unhandledrejection", onRejection);
 		};

@@ -198,11 +198,13 @@ What is not (artifacts are code the agent wrote, running in your browser):
 - **Artifacts are not isolated from each other.** They share one origin, so an artifact
   can read another artifact's memory, and the per-artifact `mcp` allowlist only prevents
   mistakes — a malicious artifact can claim another's id. Approval is therefore per
-  tool, not per artifact.
+  tool, not per artifact, and there is no "allow every tool" (`*`) pattern.
 - **The CSP reduces, but does not stop, exfiltration.** `connect-src 'self'` blocks
   `fetch`/WebSocket to other hosts, but a script can still navigate the page elsewhere.
   Render MCP results as text (React does this by default), not as HTML.
-- Exported HTML files carry a CSP that blocks all network access.
+- Exported HTML files carry a CSP that blocks `fetch`, images and other loads from the
+  network; as in the viewer, a script could still navigate away, so share exports of
+  artifacts you trust.
 
 ### Lifecycle
 

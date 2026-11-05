@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -29,6 +30,8 @@ jobs:
 
   windows:
     name: Unit tests on Windows
+    # Windows runners cost more minutes on private repos: run on demand (Actions → CI → Run workflow).
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

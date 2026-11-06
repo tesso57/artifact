@@ -1,6 +1,6 @@
 {
   "name": "pi-artifacts",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Live React artifacts for the pi coding agent: shadcn/ui + TanStack, SQLite memory, MCP access, single-file HTML export, skills and templates",
   "license": "MIT",
   "type": "module",
@@ -57,6 +57,7 @@
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "react-is": "^19.3.1",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.4",

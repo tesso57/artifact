@@ -1,7 +1,7 @@
 /**
- * Install smoke test: `npm pack` this package, install the tarball into a fresh folder like
- * `pi install npm:` would (so it lives inside node_modules), then run the full e2e suite
- * against that installed copy.
+ * Install smoke test: `npm pack` this package, install the tarball into a fresh folder the way
+ * `pi install` does (`--omit=dev --legacy-peer-deps`, inside node_modules), then run the full
+ * e2e suite against that installed copy.
  *   node test/e2e/pack.ts
  */
 import { execFileSync, spawnSync } from "node:child_process";
@@ -17,7 +17,9 @@ const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const tarball = execFileSync(npm, ["pack", "--silent", "--pack-destination", work], { cwd: root, encoding: "utf8" }).trim().split("\n").pop()!;
 console.log(`packed ${tarball}`);
 writeFileSync(join(work, "package.json"), JSON.stringify({ name: "install-test", private: true }));
-execFileSync(npm, ["install", "--omit=dev", "--no-audit", "--no-fund", join(work, tarball)], { cwd: work, stdio: "inherit" });
+// The same flags pi uses for package installs: no dev dependencies and, importantly, no peer
+// dependencies — every package the viewer needs must be a direct dependency.
+execFileSync(npm, ["install", "--omit=dev", "--legacy-peer-deps", "--no-audit", "--no-fund", join(work, tarball)], { cwd: work, stdio: "inherit" });
 const installed = join(work, "node_modules", "pi-artifacts");
 console.log(`installed at ${installed}`);
 

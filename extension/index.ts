@@ -29,8 +29,11 @@ export default function piArtifacts(pi: ExtensionAPI) {
 	});
 	pi.on("session_shutdown", async () => runtime.shutdown());
 
+	// Tell a permission guard (if one listens) that this package's own tools are trusted.
 	pi.on("session_start", () => {
-		pi.events.emit("guard:trust-tool", { tool: "notes_write", by: "notes" });
+		for (const tool of ["artifact_write", "artifact_memory", "artifact_template", "artifact_export"]) {
+			pi.events.emit("guard:trust-tool", { tool, by: "artifacts" });
+		}
 	});
 
 	registerArtifactWrite(pi, runtime);

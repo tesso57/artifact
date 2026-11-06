@@ -32,6 +32,14 @@ React 19, Tailwind CSS v4, shadcn/ui.
 
 ## Rules
 
+- **Diagrams are Mermaid, first.** Anything that shows structure or flow — architecture,
+  request/sequence flows, state machines, ER/data models, class diagrams, processes,
+  gantt/timelines, mindmaps — is drawn with `<Mermaid chart={...} />` or `<DiagramCard>`
+  from `@/components/blocks`. Never build diagrams from divs, absolutely positioned boxes,
+  hand-written SVG or chart libraries. When the user asks to "explain", "show how … works"
+  or "visualize the design", start from the `diagram` template. Charts (recharts in
+  `ChartCard`) are only for numbers.
+
 - Layout: `<Page>` → `<PageHeader>` → `<Section>`s; grids with `<Grid cols>`. Mobile first:
   everything must work at 375px wide.
 - Style only with Tailwind classes and theme tokens (`bg-card`, `text-muted-foreground`,

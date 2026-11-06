@@ -42,7 +42,7 @@ export default defineConfig({
 	optimizeDeps: {
 		// Artifacts are not crawled at startup; pre-bundle what they may import so the
 		// first artifact load does not trigger a dependency re-optimization reload.
-		include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "recharts", "lucide-react", "radix-ui", "@tanstack/react-query", "@tanstack/react-table", "class-variance-authority", "clsx", "tailwind-merge"],
+		include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "recharts", "lucide-react", "radix-ui", "@tanstack/react-query", "@tanstack/react-table", "class-variance-authority", "clsx", "tailwind-merge", "mermaid"],
 	},
 	plugins: [
 		piArtifactsPlugin({

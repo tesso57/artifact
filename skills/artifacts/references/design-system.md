@@ -59,6 +59,19 @@ overridden in `~/.pi/artifacts/.design/theme.css`; use them through Tailwind cla
 - Forms: `Label` above control, helper text `text-xs text-muted-foreground`, inline
   errors `text-destructive text-xs`.
 
+## Diagrams (Mermaid)
+
+- Every structural or flow visual is Mermaid (`Mermaid` / `DiagramCard`); the theme follows
+  light and dark automatically — do not set colors or `%%{init}%%` themes in the source.
+- One idea per diagram, roughly 5–12 nodes; split bigger systems into several diagrams
+  (overview first, then details) in `Tabs` or stacked `Section`s.
+- Short labels in boxes (2–4 words); explanations go in the card description or caption.
+- Direction: `flowchart LR` for pipelines and architecture, `TD` for hierarchies and
+  decisions; `sequenceDiagram` for who-calls-whom over time; `stateDiagram-v2` for
+  lifecycles; `erDiagram` for data models; `gantt` / `timeline` for schedules.
+- Show the source under the diagram (`<details>` with a `pre`) when the user may want to
+  reuse or edit it.
+
 ## Charts
 
 - Always in `ChartCard`, with `gridProps`, `axisProps`, `tooltipProps`.

@@ -18,6 +18,9 @@ link that hot-reloads as the agent iterates.
 - **shadcn/ui + TanStack** — shadcn/ui components plus blocks that compose them with
   TanStack Query and Table v9 (`DataTable`, `QueryState`, `McpQuery`, `StatCard`,
   `ChartCard`, `Page`/`Section`/`Grid`), recharts and lucide icons. Light and dark.
+- **Mermaid first for diagrams** — `<Mermaid>` / `<DiagramCard>` render architecture,
+  sequence, state, ER and other diagrams in the theme; the agent is told to prefer them
+  over hand-built visuals, with a `diagram` template to start from.
 - **SQLite memory** — `useMemory()` persists state; the agent reads and writes the same
   store with `artifact_memory`.
 - **MCP from artifacts** — `useMcp("server.tool", args)` calls MCP servers connected to

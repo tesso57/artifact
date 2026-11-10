@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { once } from "node:events";
 import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
-import { acquireLock } from "../../../viewer/server/daemon-lock.ts";
+import { acquireLock, releaseLock } from "../../../viewer/server/daemon-lock.ts";
 import { nodeTsFlags } from "../../../shared/node.ts";
 
 it("does not steal a lock whose owner is still writing its PID", async () => {
@@ -18,7 +18,7 @@ it("does not steal a lock whose owner is still writing its PID", async () => {
 		await writeFile(file, String(process.pid));
 		expect(await pending).toBe(false);
 		expect(await readFile(file, "utf8")).toBe(String(process.pid));
-	} finally { await rm(dir, { recursive: true, force: true }); }
+	} finally { releaseLock(file); await rm(dir, { recursive: true, force: true }); }
 });
 
 it("recovers an abandoned empty lock after the initialization window", async () => {
@@ -28,7 +28,7 @@ it("recovers an abandoned empty lock after the initialization window", async () 
 		await writeFile(file, "");
 		expect(await acquireLock(file)).toBe(true);
 		expect(await readFile(file, "utf8")).toBe(String(process.pid));
-	} finally { await rm(dir, { recursive: true, force: true }); }
+	} finally { releaseLock(file); await rm(dir, { recursive: true, force: true }); }
 });
 
 it("does not reclaim an old lock while its owner is alive but not answering", async () => {
@@ -40,7 +40,7 @@ it("does not reclaim an old lock while its owner is alive but not answering", as
 		await utimes(file, old, old);
 		expect(await acquireLock(file)).toBe(false);
 		expect(await readFile(file, "utf8")).toBe(String(process.pid));
-	} finally { await rm(dir, { recursive: true, force: true }); }
+	} finally { releaseLock(file); await rm(dir, { recursive: true, force: true }); }
 });
 
 it("recovers a lock whose owner has exited", async () => {
@@ -52,8 +52,23 @@ it("recovers a lock whose owner has exited", async () => {
 		await writeFile(file, String(child.pid));
 		expect(await acquireLock(file)).toBe(true);
 		expect(await readFile(file, "utf8")).toBe(String(process.pid));
-	} finally { await rm(dir, { recursive: true, force: true }); }
+	} finally { releaseLock(file); await rm(dir, { recursive: true, force: true }); }
 });
+
+it("holds the gate until shutdown even if the PID file is removed", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-lock-gate-held-"));
+	const file = join(dir, "viewer.lock");
+	try {
+		expect(await acquireLock(file)).toBe(true);
+		await rm(file);
+		expect(await acquireLock(file)).toBe(false);
+		releaseLock(file);
+		expect(await acquireLock(file)).toBe(true);
+	} finally {
+		releaseLock(file);
+		await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+	}
+}, 15_000);
 
 it("allows only one process to recover an abandoned lock", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-lock-race-"));
@@ -109,6 +124,7 @@ it("recovers when a process dies while holding the recovery gate", async () => {
 		expect(await readFile(file, "utf8")).toBe(String(process.pid));
 	} finally {
 		if (child.exitCode === null && child.signalCode === null) child.kill();
+		releaseLock(file);
 		await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 	}
 }, 20_000);

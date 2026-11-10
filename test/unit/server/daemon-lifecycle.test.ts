@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -35,6 +35,33 @@ it("keeps an unused link alive beyond idle shutdown, then exits after it is used
 		expect(daemon.exitCode).toBe(0);
 	} finally {
 		if (daemon.exitCode === null) { daemon.kill("SIGTERM"); await exited; }
+		rmSync(dir, { recursive: true, force: true });
+	}
+}, 25_000);
+
+it("leaves a replacement owner's PID lock intact during shutdown", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "pi-daemon-replaced-lock-"));
+	const state = join(dir, ".state");
+	const stateFile = join(state, "viewer.json");
+	const lockFile = join(state, "viewer.lock");
+	const daemon = spawn(process.execPath, [fileURLToPath(new URL("../../../viewer/server/daemon.ts", import.meta.url))], {
+		env: { ...process.env, PI_ARTIFACTS_DIR: dir, PI_ARTIFACTS_STATE: state, PI_ARTIFACTS_DB: join(state, "memory.sqlite"), PI_ARTIFACTS_TEMPLATES: join(dir, ".templates"), PI_ARTIFACTS_DESIGN: join(dir, ".design") },
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	let output = "";
+	daemon.stdout.on("data", (chunk) => { output += chunk; });
+	daemon.stderr.on("data", (chunk) => { output += chunk; });
+	const exited = new Promise<void>((done) => daemon.once("exit", () => done()));
+	try {
+		const deadline = Date.now() + 15_000;
+		while (!existsSync(stateFile) && daemon.exitCode === null && Date.now() < deadline) await delay(50);
+		if (!existsSync(stateFile)) throw new Error(`daemon did not start: ${output}`);
+		writeFileSync(lockFile, String(process.pid));
+		daemon.kill("SIGTERM");
+		await Promise.race([exited, delay(6000).then(() => { throw new Error(`daemon did not exit: ${output}`); })]);
+		expect(readFileSync(lockFile, "utf8")).toBe(String(process.pid));
+	} finally {
+		if (daemon.exitCode === null && daemon.signalCode === null) { daemon.kill("SIGTERM"); await exited; }
 		rmSync(dir, { recursive: true, force: true });
 	}
 }, 25_000);

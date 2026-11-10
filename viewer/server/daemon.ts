@@ -17,7 +17,7 @@ import { type DaemonState, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import { DaemonContext } from "./context.ts";
 import { VIEWER_DIR } from "./vite-shared.ts";
 import { RuntimeAliases } from "./runtime-aliases.ts";
-import { acquireLock } from "./daemon-lock.ts";
+import { acquireLock, releaseLock } from "./daemon-lock.ts";
 
 const foreground = process.argv.includes("--foreground");
 const idleMs = Number(process.env.PI_ARTIFACTS_IDLE_MS) || 15 * 60_000;
@@ -86,7 +86,10 @@ async function stop(reason: string) {
 	} catch {}
 	await server.close().catch(() => {});
 	ctx.memory.close();
-	rmSync(lockFile, { force: true });
+	try {
+		if (readFileSync(lockFile, "utf8").trim() === String(process.pid)) rmSync(lockFile, { force: true });
+	} catch {}
+	releaseLock(lockFile);
 	process.exit(0);
 }
 ctx.onShutdown = () => void stop("api");

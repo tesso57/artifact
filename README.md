@@ -267,8 +267,8 @@ What is not (artifacts are code the agent wrote, running in your browser):
   the PID file is removed. Older versions do not use the gate, so simultaneous startup
   across versions can still race when recovering a stale PID lock.
 
-When upgrading from an older version, stop the viewer with `/artifacts stop`, then close
-all old pi sessions before starting pi with the updated package. Version 0.4 uses viewer
+Before updating from an older version, stop the viewer with `/artifacts stop`, then close
+all old pi sessions. Update the package and start pi only after they have exited. Version 0.4 uses viewer
 protocol 2; an older client cannot use the new viewer and must be updated. Do not remove
 `viewer.lock.gate.sqlite` or its SQLite journal while a viewer may be running: deleting
 the gate file can bypass its lock. If recovery is necessary, first stop all pi sessions

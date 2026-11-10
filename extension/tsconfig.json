@@ -1,5 +1,10 @@
 {
   "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
   "include": [".", "../shared", "../test"],
-  "exclude": ["../test/e2e/demo-artifact.tsx"]
+  "exclude": ["../test/e2e/demo-artifact.tsx", "../test/unit/components"]
 }

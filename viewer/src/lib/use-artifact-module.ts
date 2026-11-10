@@ -2,7 +2,7 @@ import { type ComponentType, useEffect, useState } from "react";
 
 type LoadedArtifact =
 	| { status: "loading" }
-	| { status: "ready"; Component: ComponentType }
+	| { status: "ready"; Component: ComponentType; revision: number }
 	| { status: "error"; error: unknown };
 
 /** A React component: a function, or a memo/forwardRef/lazy object. */
@@ -10,7 +10,7 @@ const isComponent = (c: unknown) => typeof c === "function" || (typeof c === "ob
 
 function toLoaded(mod: { default?: unknown }): LoadedArtifact {
 	return isComponent(mod.default)
-		? { status: "ready", Component: mod.default as ComponentType }
+		? { status: "ready", Component: mod.default as ComponentType, revision: 0 }
 		: { status: "error", error: new Error("The artifact must `export default` a React component") };
 }
 
@@ -56,7 +56,7 @@ export function useArtifactModule(url: string, version: number): LoadedArtifact 
 		const hot = import.meta.hot;
 		if (!hot) return;
 		const onUpdate = (payload: { updates: { path: string; timestamp: number }[] }) => {
-			const update = payload.updates.find((u) => u.path === url);
+			const update = payload.updates.find((u) => u.path === url || u.path === decodeURI(url));
 			if (!update) return;
 			// Same URL + timestamp as Vite's own hot import: returns the already-updated module.
 			import(/* @vite-ignore */ `${url}?t=${update.timestamp}`).then(
@@ -68,7 +68,8 @@ export function useArtifactModule(url: string, version: number): LoadedArtifact 
 						const named = (c: unknown) => typeof c === "function" && !!c.name && c.name !== "default";
 						const sameName =
 							prev.status === "ready" && next.status === "ready" && named(next.Component) && (prev.Component as { name?: string }).name === (next.Component as { name?: string }).name;
-						return sameName ? prev : next;
+						if (next.status !== "ready") return next;
+						return { ...next, Component: sameName && prev.status === "ready" ? prev.Component : next.Component, revision: prev.status === "ready" ? prev.revision + 1 : 0 };
 					}),
 				(error) => setState({ status: "error", error }),
 			);

@@ -44,5 +44,6 @@ export function designDir(): string {
 /** POSIX-style `/@fs/…` URL Vite serves a file outside the project root from (works on Windows). */
 export function fsUrl(file: string): string {
 	const posix = file.replace(/\\/g, "/");
-	return `/@fs${posix.startsWith("/") ? "" : "/"}${posix}`;
+	const encoded = encodeURI(posix).replaceAll("#", "%23").replaceAll("?", "%3F");
+	return `/@fs${posix.startsWith("/") ? "" : "/"}${encoded}`;
 }

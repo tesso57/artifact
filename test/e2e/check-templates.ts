@@ -3,12 +3,12 @@
  * daemon, and fail on load or render errors.
  *   node test/e2e/check-templates.ts [screenshot-dir]
  */
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { launchBrowser } from "./browser.ts";
+import { isolateTestEnvironment } from "./environment.ts";
 
-process.env.PI_ARTIFACTS_DIR ??= mkdtempSync(join(tmpdir(), "pi-artifacts-templates-"));
+const testEnvironment = isolateTestEnvironment(process.env);
 process.env.PI_ARTIFACTS_PORT ??= "5410";
 const shots = process.argv[2];
 if (shots) mkdirSync(shots, { recursive: true });
@@ -21,8 +21,10 @@ const templates = readdirSync(BUNDLED_TEMPLATES_DIR, { withFileTypes: true })
 	.map((d) => d.name);
 const daemon = new DaemonClient();
 const failures: string[] = [];
-const browser = await launchBrowser();
+let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined;
+let completed = false;
 try {
+	browser = await launchBrowser();
 	for (const name of templates) {
 		for (const theme of ["light", "dark"] as const) {
 			const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, colorScheme: theme });
@@ -41,12 +43,15 @@ try {
 		}
 		console.log(`✓ ${name}`);
 	}
+	completed = failures.length === 0;
 } finally {
-	await browser.close();
+	await browser?.close().catch(() => {});
 	try {
-		const state = JSON.parse(readFileSync(join(process.env.PI_ARTIFACTS_DIR, ".state", "viewer.json"), "utf8"));
+		const state = JSON.parse(readFileSync(join(testEnvironment.dir, ".state", "viewer.json"), "utf8"));
 		await fetch(`${state.url}/__pi/api/shutdown`, { method: "POST", headers: { "x-pi-artifacts-secret": state.secret } });
 	} catch {}
+	if (completed) testEnvironment.cleanup();
+	else console.error(`Test data retained at ${testEnvironment.dir}`);
 }
 if (failures.length) {
 	console.error(`\n${failures.length} problem(s):\n${failures.join("\n")}`);

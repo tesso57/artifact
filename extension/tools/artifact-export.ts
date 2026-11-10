@@ -21,6 +21,7 @@ export function formatExport(r: ExportResponse): string {
 	return [
 		`Exported to ${r.file} (${(r.bytes / 1024).toFixed(0)} KB).`,
 		`Embedded data — mention it before the file is shared: ${e.memoryKeys.length} memory key(s)${e.memoryKeys.length ? ` (${e.memoryKeys.join(", ")})` : ""}, ${e.sharedKeys.length} shared key(s)${e.sharedKeys.length ? ` (${e.sharedKeys.join(", ")})` : ""}, ${e.mcpCalls.length} MCP result(s).`,
+		...e.mcpCalls.map((call) => `  - ${call}`),
 	].join("\n");
 }
 
@@ -29,7 +30,7 @@ export function registerArtifactExport(pi: ExtensionAPI, runtime: ArtifactsRunti
 		name: "artifact_export",
 		label: "Export artifact",
 		description:
-			"Export an artifact as one self-contained HTML file. It works offline: the artifact's memory is snapshotted (then kept in localStorage) and MCP calls replay the results last fetched in the viewer.",
+			"Export an artifact as one self-contained HTML file. It works offline: memory is snapshotted and MCP calls replay successful results fetched for the current artifact version. After rewriting, open the artifact and wait for data to reload before exporting.",
 		promptSnippet: "Export an artifact to a single self-contained HTML file",
 		parameters: Type.Object({
 			id: Type.String({ description: "Artifact id" }),

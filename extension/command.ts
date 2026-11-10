@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { artifactsDir } from "../shared/paths.ts";
 import type { ArtifactMeta } from "../shared/protocol.ts";
 import { openInBrowser } from "./open.ts";
+import { ViewerNotRunningError } from "./daemon-client.ts";
 import type { ArtifactsRuntime } from "./runtime.ts";
 import { type ExportResponse, exportTarget, formatExport } from "./tools/artifact-export.ts";
 
@@ -25,7 +26,7 @@ async function open(runtime: ArtifactsRuntime, ctx: ExtensionCommandContext, id:
 	await runtime.connect();
 	if (id && !(await list(runtime)).some((a) => a.id === id)) return ctx.ui.notify(`No artifact "${id}"`, "error");
 	const link = await runtime.daemon.link(id ? `/a/${id}` : "/");
-	ctx.ui.notify(openInBrowser(link) ? `Opened ${runtime.daemon.url}${id ? `/a/${id}` : ""}` : link, "info");
+	ctx.ui.notify(await openInBrowser(link) ? `Opened ${runtime.daemon.url}${id ? `/a/${id}` : ""}` : link, "info");
 }
 
 export function registerArtifactsCommand(pi: ExtensionAPI, runtime: ArtifactsRuntime): void {
@@ -43,11 +44,15 @@ export function registerArtifactsCommand(pi: ExtensionAPI, runtime: ArtifactsRun
 		},
 		handler: async (args, ctx) => {
 			runtime.attach(ctx);
-			const [sub, arg, path] = args.trim().split(/\s+/);
+			const [, sub = "", arg, path] = /^(\S+)(?:\s+(\S+))?(?:\s+([\s\S]*))?$/.exec(args.trim()) ?? [];
 			try {
 				if (sub === "stop") {
-					await runtime.daemon.api("/shutdown", {}, { start: false }).catch(() => {});
-					return ctx.ui.notify("Artifact viewer stopped", "info");
+					try { await runtime.daemon.api("/shutdown", {}, { start: false }); }
+					catch (error) {
+						if (error instanceof ViewerNotRunningError) return ctx.ui.notify("Artifact viewer is not running", "info");
+						throw error;
+					}
+					return ctx.ui.notify("Stopping artifact viewer", "info");
 				}
 				if (sub === "export") {
 					if (!arg) return ctx.ui.notify("Usage: /artifacts export <id> [file.html]", "warning");

@@ -5,7 +5,8 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import type { DaemonContext } from "../../server/context.ts";
-import { isValidId, SHARED_SCOPE } from "../../../shared/ids.ts";
+import { assertMemoryKey, isValidId, isValidRuntimeId, SHARED_SCOPE } from "../../../shared/ids.ts";
+import type { MemorySnapshot } from "../../../shared/protocol.ts";
 
 // The daemon installs its context on globalThis; importing the class here would load a
 // second copy of the daemon's modules inside the module runner.
@@ -17,6 +18,11 @@ const ctx = () => {
 
 function id(v: unknown): string {
 	if (!isValidId(v)) throw new Error(`Invalid id ${JSON.stringify(v)}`);
+	return v;
+}
+
+function runtimeId(v: unknown): string {
+	if (!isValidRuntimeId(v)) throw new Error(`Invalid id ${JSON.stringify(v)}`);
 	return v;
 }
 
@@ -46,14 +52,14 @@ export const exportArtifactFn = createServerFn({ method: "POST" })
 // ---- runtime feedback -------------------------------------------------------------------
 
 export const pingFn = createServerFn({ method: "POST" })
-	.validator(id)
+	.validator(runtimeId)
 	.handler(({ data }) => {
 		ctx().noteViewing(data);
 		return null;
 	});
 
 export const reportErrorFn = createServerFn({ method: "POST" })
-	.validator((d: { id: string; message: string; stack?: string }) => ({ ...d, id: id(d.id), message: String(d.message) }))
+	.validator((d: { id: string; message: string; stack?: string }) => ({ ...d, id: runtimeId(d.id), message: String(d.message) }))
 	.handler(({ data }) => {
 		ctx().reportError(data.id, data.message, data.stack);
 		return null;
@@ -63,37 +69,66 @@ export const reportErrorFn = createServerFn({ method: "POST" })
 
 type Scoped = { scope: string; key: string; from?: string };
 
-function scoped<T extends { key: unknown }>(d: T): T & { key: string } {
-	if (typeof d.key !== "string" || d.key.length === 0 || d.key.length > 512 || d.key === "*") {
-		throw new Error('Memory keys are non-empty strings (max 512), not "*"');
-	}
+function scoped<T extends { key: unknown }>(d: T, forWrite = false): T & { key: string } {
+	assertMemoryKey(d.key, forWrite);
 	return d as T & { key: string };
 }
 
 export const memoryGetFn = createServerFn({ method: "POST" })
 	.validator((d: Scoped) => scoped(d))
 	.handler(({ data }) => {
-		const value = ctx().memory.get(ctx().scope(data.scope, data.from, data.key), data.key);
+		const c = ctx();
+		const scope = c.scope(data.scope);
+		const value = c.memory.get(scope, data.key);
+		if (value !== undefined && scope === SHARED_SCOPE && isValidRuntimeId(data.from)) c.memory.noteSharedRead(data.from, data.key);
 		// `found` keeps a stored `null` apart from a missing key (undefined does not serialize).
 		return { found: value !== undefined, value: (value ?? null) as never };
 	});
 
 export const memorySetFn = createServerFn({ method: "POST" })
-	.validator((d: Scoped & { value: unknown }) => scoped(d))
+	.validator((d: Scoped & { value: unknown }) => scoped(d, d.value !== undefined))
 	// undefined (dropped by serialization) deletes the key, as in exports.
-	.handler(({ data }) => ({ updatedAt: ctx().memory.set(ctx().scope(data.scope), data.key, data.value).updatedAt }));
+	.handler(({ data }) => {
+		const scope = ctx().scope(data.scope);
+		const entry = ctx().memory.set(scope, data.key, data.value);
+		ctx().memoryChanged(scope);
+		return { updatedAt: entry.updatedAt };
+	});
+
+export const memoryCompareSetFn = createServerFn({ method: "POST" })
+	.validator((d: Scoped & { expected: MemorySnapshot; value?: unknown }) => {
+		scoped(d, d.value !== undefined);
+		if (!d.expected || typeof d.expected.found !== "boolean" || (d.expected.found && d.expected.value === undefined)) throw new Error("Invalid expected memory value");
+		return d;
+	})
+	.handler(({ data }) => {
+		const c = ctx();
+		const scope = c.scope(data.scope);
+		const updated = c.memory.compareAndSet(scope, data.key, data.expected, data.value);
+		if (updated) c.memoryChanged(scope);
+		return { updated };
+	});
 
 export const memoryDeleteFn = createServerFn({ method: "POST" })
 	.validator((d: Scoped) => scoped(d))
-	.handler(({ data }) => ({ deleted: ctx().memory.delete(ctx().scope(data.scope), data.key) }));
+	.handler(({ data }) => {
+		const scope = ctx().scope(data.scope);
+		const deleted = ctx().memory.delete(scope, data.key);
+		if (deleted) ctx().memoryChanged(scope);
+		return { deleted };
+	});
 
 export const memoryListFn = createServerFn({ method: "POST" })
 	.validator((d: { scope: string; prefix?: string; from?: string }) => d)
-	.handler(({ data }) =>
-		ctx()
-			.memory.list(ctx().scope(data.scope, data.from, data.scope === SHARED_SCOPE ? "*" : undefined), data.prefix)
-			.map((e) => ({ key: e.key, value: e.value as never, updatedAt: e.updatedAt })),
-	);
+	.handler(({ data }) => {
+		const c = ctx();
+		const scope = c.scope(data.scope);
+		const entries = c.memory.list(scope, data.prefix);
+		if (scope === SHARED_SCOPE && isValidRuntimeId(data.from)) {
+			for (const entry of entries) c.memory.noteSharedRead(data.from, entry.key);
+		}
+		return entries.map((e) => ({ key: e.key, value: e.value as never, updatedAt: e.updatedAt }));
+	});
 
 // ---- MCP (routed to a pi session's bridge) -----------------------------------------------
 
@@ -107,5 +142,6 @@ export const mcpCallFn = createServerFn({ method: "POST" })
 	.validator((d: { name: string; args?: Record<string, unknown>; artifactId: string }) => d)
 	.handler(async ({ data }) => {
 		const r = await ctx().mcpCall(data.artifactId, data.name, data.args ?? {});
-		return { ...r, data: (r.data ?? null) as never };
+		const { data: resultData, ...rest } = r;
+		return resultData === undefined ? rest : { ...rest, data: resultData as never };
 	});

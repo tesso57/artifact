@@ -8,11 +8,11 @@ import { existsSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
 import type { Connect } from "vite";
-import { assertArtifactId } from "../../shared/ids.ts";
+import { assertArtifactId, assertMemoryKey } from "../../shared/ids.ts";
 import { BUNDLED_TEMPLATES_DIR, designDir, userTemplatesDir } from "../../shared/paths.ts";
 import { DAEMON_SECRET_HEADER, PROTOCOL_VERSION, type SessionRegistration } from "../../shared/protocol.ts";
 import type { DaemonContext } from "./context.ts";
-import { listArtifacts } from "./store.ts";
+import { listArtifacts, readAvailableMeta, readMeta } from "./store.ts";
 import { deleteTemplate, getTemplate, listTemplates, saveTemplate } from "./templates.ts";
 
 const MAX_BODY = 4 * 1024 * 1024;
@@ -20,7 +20,13 @@ const MAX_BODY = 4 * 1024 * 1024;
 function cookie(req: IncomingMessage, name: string): string | undefined {
 	for (const part of (req.headers.cookie ?? "").split(";")) {
 		const [k, ...v] = part.trim().split("=");
-		if (k === name) return decodeURIComponent(v.join("="));
+		if (k === name) {
+			try {
+				return decodeURIComponent(v.join("="));
+			} catch {
+				return undefined;
+			}
+		}
 	}
 	return undefined;
 }
@@ -75,10 +81,12 @@ export function guardMiddleware(ctx: DaemonContext): Connect.NextHandleFunction 
 		if (path === "/__pi/login") return next();
 		// Vite's open-in-editor endpoint would let page scripts open files in the user's editor.
 		if (path.startsWith("/__open-in-editor")) return send(res, 403, { error: "Forbidden" });
-		if (ctx.isSecret(req.headers[DAEMON_SECRET_HEADER])) return next();
+		if (ctx.isSecret(req.headers[DAEMON_SECRET_HEADER])) {
+			ctx.touch();
+			return next();
+		}
 		// The open-tab banner polls this; it must not keep an idle daemon alive.
 		if (path === "/__pi/session") return send(res, ctx.browserSession(cookie(req, ctx.cookieName)) ? 200 : 401, {});
-		if (ctx.isSecret(req.headers[DAEMON_SECRET_HEADER])) ctx.touch();
 		if (ctx.browserSession(cookie(req, ctx.cookieName)) && !path.startsWith("/__pi/api/")) {
 			ctx.touch();
 			if (req.method !== "GET" && req.method !== "HEAD" && !sameOrigin(req, ctx)) {
@@ -119,10 +127,22 @@ const routes: Record<string, Handler> = {
 	},
 	"POST /link": (ctx, body: { next?: string }) => ({ url: ctx.link(body.next ?? "/") }),
 
-	"GET /artifacts": () => listArtifacts(),
+	"GET /artifacts": async (_ctx, _body, url) => {
+		const id = url.searchParams.get("id");
+		if (id === null) return listArtifacts();
+		assertArtifactId(id);
+		if (!(await readMeta(id))) return [];
+		const meta = await readAvailableMeta(id);
+		if (!meta) throw new Error(`Artifact "${id}" source is missing or not a regular file; repair it before requesting a link`);
+		return [meta];
+	},
 	"POST /artifacts/write": async (ctx, body) => {
 		if (body.id !== undefined) assertArtifactId(body.id);
 		if (typeof body.title !== "string" || typeof body.code !== "string") throw new Error("title and code are required");
+		for (const field of ["description", "cwd", "sessionId"]) {
+			if (body[field] !== undefined && typeof body[field] !== "string") throw new Error(`${field} must be a string`);
+		}
+		if (body.mcp !== undefined && (!Array.isArray(body.mcp) || !body.mcp.every((item: unknown) => typeof item === "string"))) throw new Error("mcp must be an array of strings");
 		const r = await ctx.writeArtifact({
 			id: body.id,
 			title: body.title,
@@ -130,7 +150,7 @@ const routes: Record<string, Handler> = {
 			code: body.code,
 			cwd: body.cwd,
 			sessionId: body.sessionId,
-			mcp: Array.isArray(body.mcp) ? body.mcp.map(String) : undefined,
+			mcp: body.mcp,
 		});
 		return { ...r, url: `${ctx.origin}/a/${r.meta.id}`, link: ctx.link(`/a/${r.meta.id}`) };
 	},
@@ -150,9 +170,8 @@ const routes: Record<string, Handler> = {
 
 	"POST /memory": (ctx, body: { action: string; scope: string; key?: string; value?: unknown }) => {
 		const scope = ctx.scope(body.scope);
-		const key = () => {
-			if (typeof body.key !== "string" || !body.key) throw new Error(`"key" is required for ${body.action}`);
-			if (body.key === "*") throw new Error('"*" cannot be a memory key');
+		const key = (forWrite = false) => {
+			assertMemoryKey(body.key, forWrite);
 			return body.key;
 		};
 		switch (body.action) {
@@ -160,8 +179,12 @@ const routes: Record<string, Handler> = {
 				return ctx.memory.list(scope).map((e) => ({ key: e.key, value: e.value }));
 			case "get":
 				return ctx.memory.get(scope, key()) ?? null;
+			case "get-with-presence": {
+				const value = ctx.memory.get(scope, key());
+				return value === undefined ? { found: false } : { found: true, value };
+			}
 			case "set":
-				ctx.memory.set(scope, key(), body.value);
+				ctx.memory.set(scope, key(body.value !== undefined), body.value);
 				ctx.memoryChanged(scope);
 				return { ok: true };
 			case "delete": {
@@ -185,15 +208,22 @@ const routes: Record<string, Handler> = {
 		return t;
 	},
 	"POST /templates/save": async (ctx, body) => {
+		let compileError: string | undefined;
 		const info = await saveTemplate(
 			body.name,
 			{ title: body.title, description: body.description, useCases: body.useCases ?? [], tags: body.tags, mcp: body.mcp },
 			body.code,
+			undefined,
+			async (saved) => {
+				ctx.invalidateTemplateMcp(saved.name);
+				compileError = await ctx.compileCheck(ctx.aliases.map(saved.path), ctx.moduleUrl("t", saved.name, saved.path));
+				await ctx.refreshStyles();
+				ctx.templateChanged(saved.name);
+			},
 		);
-		const compileError = await ctx.compileCheck(info.path);
 		return { info, compileError, previewLink: compileError ? undefined : ctx.link(`/t/${body.name}`) };
 	},
-	"POST /templates/delete": async (_ctx, body) => ({ deleted: await deleteTemplate(body.name) }),
+	"POST /templates/delete": async (ctx, body) => ({ deleted: await deleteTemplate(body.name, undefined, (deleted) => ctx.forgetTemplatePreview(body.name, deleted)) }),
 };
 
 export function apiMiddleware(ctx: DaemonContext): Connect.NextHandleFunction {

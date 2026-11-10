@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { FileCode2, Folder, Search, Sparkles } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { ErrorPanel } from "@/components/artifact-error";
 import { McpBadge } from "@/components/mcp-badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +14,13 @@ import { listArtifactsFn } from "@/server/fns";
 export const Route = createFileRoute("/")({
 	loader: () => listArtifactsFn(),
 	component: Home,
+	errorComponent: ({ error }) => <GalleryError error={error} />,
 });
+
+function GalleryError({ error }: { error: unknown }) {
+	const router = useRouter();
+	return <div className="p-8"><ErrorPanel title="Could not load artifacts" error={error} onRetry={() => void router.invalidate()} /></div>;
+}
 
 function Home() {
 	const artifacts = Route.useLoaderData();
@@ -47,8 +54,9 @@ function Home() {
 
 			<div className="relative mb-6 max-w-md">
 				<Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-				<Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search artifacts…" className="pl-9" />
+				<Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search artifacts…" aria-label="Search artifacts" className="pl-9" />
 			</div>
+			<p role="status" className="sr-only">{q.trim() ? `${filtered.length} ${filtered.length === 1 ? "artifact" : "artifacts"} found` : ""}</p>
 
 			{artifacts.length === 0 ? (
 				<EmptyState />

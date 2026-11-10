@@ -24,6 +24,9 @@ export interface McpCallResult {
 	data?: unknown;
 }
 
+/** A memory value can be absent or present with any JSON value, including null. */
+export type MemorySnapshot = { found: false } | { found: true; value: unknown };
+
 export const BRIDGE_TOKEN_HEADER = "x-pi-artifacts-token";
 /** Bumped when the daemon API changes incompatibly; clients only use daemons with the same one. */
 export const PROTOCOL_VERSION = 1;
@@ -63,6 +66,8 @@ export interface BridgeCallRequest {
 
 export interface ArtifactMeta {
 	id: string;
+	/** Identifies one creation of an id; absent in metadata written by older versions. */
+	instanceId?: string;
 	title: string;
 	description?: string;
 	cwd?: string;
@@ -80,11 +85,43 @@ export interface RuntimeError {
 	at: number;
 }
 
-/** Compare dotted versions numerically (`1.10.0` > `1.9.3`); pre-release tags are ignored. */
+/** Compare SemVer precedence; build metadata does not affect ordering. */
 export function compareVersions(a: string, b: string): number {
-	const pa = a.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
-	const pb = b.split(/[.-]/).map((n) => Number.parseInt(n, 10) || 0);
-	for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
+	const split = (value: string) => {
+		const withoutBuild = value.split("+", 1)[0];
+		const separator = withoutBuild.indexOf("-");
+		return {
+			core: (separator < 0 ? withoutBuild : withoutBuild.slice(0, separator)).split("."),
+			pre: separator < 0 ? undefined : withoutBuild.slice(separator + 1).split("."),
+		};
+	};
+	const numeric = (left: string, right: string) => {
+		const x = left.replace(/^0+(?=\d)/, "");
+		const y = right.replace(/^0+(?=\d)/, "");
+		return x.length !== y.length ? Math.sign(x.length - y.length) : x === y ? 0 : x < y ? -1 : 1;
+	};
+	const left = split(a);
+	const right = split(b);
+	for (let i = 0; i < 3; i++) {
+		const order = numeric(left.core[i] ?? "0", right.core[i] ?? "0");
+		if (order) return order;
+	}
+	if (!left.pre || !right.pre) return left.pre ? -1 : right.pre ? 1 : 0;
+	for (let i = 0; i < Math.max(left.pre.length, right.pre.length); i++) {
+		const x = left.pre[i];
+		const y = right.pre[i];
+		if (x === undefined || y === undefined) return x === undefined ? -1 : 1;
+		if (x === y) continue;
+		const xn = /^\d+$/.test(x);
+		const yn = /^\d+$/.test(y);
+		if (xn && yn) {
+			const order = numeric(x, y);
+			if (order) return order;
+			continue;
+		}
+		if (xn !== yn) return xn ? -1 : 1;
+		return x < y ? -1 : 1;
+	}
 	return 0;
 }
 
@@ -115,25 +152,41 @@ export function mcpAllowed(allow: readonly string[] | undefined, toolName: strin
 	if (!parts || !allow?.length) return false;
 	return allow.some((pattern) => {
 		const p = normalizeMcpToolName(pattern);
-		if (p.endsWith("__*")) return toolName.startsWith(p.slice(0, -1));
-		if (pattern.endsWith(".*")) return parts.server === pattern.slice(0, -2);
+		const allowed = parseMcpToolName(p);
+		if (!allowed) return false;
+		if (allowed.tool === "*") return parts.server === allowed.server;
 		return p === toolName;
 	});
 }
 
-/** JSON with sorted object keys, so equal arguments give equal cache keys. */
+/** JSON with sorted object keys, matching the values actually sent to MCP. */
 export function stableStringify(value: unknown): string {
-	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-	if (value && typeof value === "object") {
-		const entries = Object.entries(value as Record<string, unknown>)
-			.filter(([, v]) => v !== undefined)
-			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-		return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(",")}}`;
-	}
-	return JSON.stringify(value) ?? "null";
+	const json = JSON.stringify(value);
+	if (json === undefined) return "null";
+	const canonical = (item: unknown): string => {
+		if (Array.isArray(item)) return `[${item.map(canonical).join(",")}]`;
+		if (item && typeof item === "object") {
+			const entries = Object.entries(item as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+			return `{${entries.map(([key, value]) => `${JSON.stringify(key)}:${canonical(value)}`).join(",")}}`;
+		}
+		return JSON.stringify(item) ?? "null";
+	};
+	return canonical(JSON.parse(json));
+}
+
+/** Compare JSON values without depending on object key order. */
+export function memoryMatches(value: unknown, expected: MemorySnapshot): boolean {
+	return expected.found ? value !== undefined && stableStringify(value) === stableStringify(expected.value) : value === undefined;
+}
+
+/** Match the bridge's JSON-object argument handling before sending or caching a call. */
+export function normalizeMcpArgs(args: unknown): Record<string, unknown> {
+	const candidate = args && typeof args === "object" ? args : {};
+	const value: unknown = JSON.parse(JSON.stringify(candidate) ?? "{}");
+	return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
 /** Key of an MCP call (tool + arguments) within one artifact. */
 export function mcpCallKey(name: string, args: unknown): string {
-	return `${name} ${stableStringify(args ?? {})}`;
+	return `${name} ${stableStringify(normalizeMcpArgs(args))}`;
 }

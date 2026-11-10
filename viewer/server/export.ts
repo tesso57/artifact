@@ -6,20 +6,25 @@
  * The daemon collects the snapshot and assembles the page; bundling runs in a worker.
  */
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";
 import { build, type Plugin, type Rollup } from "vite";
 import { SHARED_SCOPE } from "../../shared/ids.ts";
-import type { ArtifactMeta } from "../../shared/protocol.ts";
+import { runtimeNeedsPreserveSymlinks } from "../../shared/node.ts";
+import { PACKAGE_ROOT } from "../../shared/paths.ts";
+import { mcpAllowed, type ArtifactMeta } from "../../shared/protocol.ts";
 import type { ArtifactSnapshot } from "../src/export/snapshot.ts";
 import type { Memory } from "./memory.ts";
 import { piArtifactsPlugin } from "./plugin.ts";
-import { artifactPaths } from "./store.ts";
-import { sharedResolve, VIEWER_DIR } from "./vite-shared.ts";
+import { filesystemPolicy, sharedResolve, VIEWER_DIR } from "./vite-shared.ts";
+import { needsVirtualModule } from "./virtual-modules.ts";
+import { writeExportFile } from "./export-file.ts";
 
 const ENTRY = "virtual:pi-artifact-export";
+const VIRTUAL_ARTIFACT = "/__pi_virtual_export__/artifact.tsx";
 
 export interface ExportResult {
 	html: string;
@@ -30,15 +35,18 @@ export interface ExportResult {
 }
 
 /** The artifact's own memory, the shared keys it read, and its cached MCP results. */
-export function collectSnapshot(memory: Memory, meta: Pick<ArtifactMeta, "id" | "title" | "description">): ArtifactSnapshot {
+export function collectSnapshot(memory: Memory, meta: Pick<ArtifactMeta, "id" | "title" | "description" | "mcp">): ArtifactSnapshot {
 	const own = memory.list(meta.id);
-	const reads = memory.sharedReads(meta.id);
-	const shared = reads.includes("*") ? memory.list(SHARED_SCOPE) : memory.list(SHARED_SCOPE).filter((e) => reads.includes(e.key));
+	const shared = memory.listReadShared(meta.id);
 	return {
 		artifact: { id: meta.id, title: meta.title, description: meta.description },
 		exportedAt: Date.now(),
+		snapshotId: randomUUID(),
 		memory: [...own, ...shared].map((e) => ({ scope: e.scope, key: e.key, value: e.value, updatedAt: e.updatedAt })),
-		mcp: memory.mcpCache(meta.id),
+		mcp: Object.fromEntries(Object.entries(memory.mcpCache(meta.id)).filter(([key]) => {
+			const separator = key.indexOf(" ");
+			return separator > 0 && mcpAllowed(meta.mcp, key.slice(0, separator));
+		})),
 	};
 }
 
@@ -48,7 +56,8 @@ export function escapeInlineScript(code: string): string {
 }
 
 export function renderHtml(opts: { title: string; css: string; js: string; snapshot: ArtifactSnapshot }): string {
-	const data = JSON.stringify(opts.snapshot).replace(/</g, "\\u003c");
+	// Parse JSON at runtime: object literals treat a "__proto__" key as a prototype setter.
+	const data = JSON.stringify(JSON.stringify(opts.snapshot)).replace(/</g, "\\u003c");
 	const title = opts.title.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 	return `<!doctype html>
 <html lang="en">
@@ -59,7 +68,7 @@ export function renderHtml(opts: { title: string; css: string; js: string; snaps
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; form-action 'none'; base-uri 'none'" />
 <title>${title}</title>
 <style>${opts.css.replace(/<\/(style)/gi, "<\\/$1")}</style>
-<script>window.__PI_ARTIFACT__ = ${data};</script>
+<script>window.__PI_ARTIFACT__ = JSON.parse(${data});</script>
 </head>
 <body class="min-h-dvh">
 <div id="root"></div>
@@ -72,28 +81,29 @@ export function renderHtml(opts: { title: string; css: string; js: string; snaps
 function entryPlugin(artifactEntry: string): Plugin {
 	return {
 		name: "pi-artifact-export-entry",
-		resolveId: (id) => (id === ENTRY ? `\0${ENTRY}` : undefined),
-		load: (id) =>
-			id === `\0${ENTRY}`
-				? `import { mount } from ${JSON.stringify(join(VIEWER_DIR, "src/export/entry.tsx"))};
-import Artifact from ${JSON.stringify(artifactEntry)};
-mount(Artifact);`
-				: undefined,
+		resolveId: (id) => id === ENTRY ? `\0${ENTRY}` : id === VIRTUAL_ARTIFACT ? VIRTUAL_ARTIFACT : undefined,
+		load: async (id) => {
+			if (id === VIRTUAL_ARTIFACT) return readFile(artifactEntry, "utf8");
+			if (id === `\0${ENTRY}`) return `import { mount } from ${JSON.stringify(join(VIEWER_DIR, "src/export/entry.tsx"))};
+import Artifact from ${JSON.stringify(needsVirtualModule(artifactEntry) ? VIRTUAL_ARTIFACT : artifactEntry)};
+mount(Artifact);`;
+		},
 	};
 }
 
 /** Bundle an artifact's code and CSS (runs in the export worker, NODE_ENV=production). */
-export async function bundleArtifact(entry: string, sources: string[]): Promise<{ js: string; css: string }> {
+export async function bundleArtifact(entry: string, sources: string[], aliasRoots: string[] = []): Promise<{ js: string; css: string }> {
 	const output = (await build({
 		configFile: false,
 		root: VIEWER_DIR,
 		mode: "production",
 		logLevel: "warn",
-		resolve: sharedResolve([
+		server: { fs: filesystemPolicy(aliasRoots) },
+		resolve: { ...sharedResolve([
 			{ find: /^@\/sdk\/backend$/, replacement: join(VIEWER_DIR, "src/export/static-backend.ts") },
-		]),
+		]), preserveSymlinks: aliasRoots.length > 0 || runtimeNeedsPreserveSymlinks(PACKAGE_ROOT) },
 		// Tailwind only needs to see this artifact (plus the viewer's own sources).
-		plugins: [entryPlugin(entry), piArtifactsPlugin({ sources }), tailwindcss(), viteReact()],
+		plugins: [entryPlugin(entry), piArtifactsPlugin({ sources, virtualSource: needsVirtualModule(entry) ? { id: VIRTUAL_ARTIFACT, file: entry } : undefined }), tailwindcss(), viteReact()],
 		build: {
 			write: false,
 			outDir: join(dirname(entry), ".export"),
@@ -127,7 +137,7 @@ export async function bundleArtifact(entry: string, sources: string[]): Promise<
  * The daemon runs a dev server with NODE_ENV=development, which would make React's plugin
  * emit development JSX; bundling therefore runs in a short-lived worker process.
  */
-function bundleInWorker(entry: string, sources: string[]): Promise<{ js: string; css: string }> {
+function bundleInWorker(entry: string, sources: string[], aliasRoots: string[]): Promise<{ js: string; css: string }> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(process.execPath, [...process.execArgv, join(VIEWER_DIR, "server", "export-worker.ts")], {
 			cwd: VIEWER_DIR,
@@ -147,17 +157,17 @@ function bundleInWorker(entry: string, sources: string[]): Promise<{ js: string;
 			}
 			reject(new Error(err.trim().split("\n").slice(-15).join("\n") || `Export worker exited with code ${code}`));
 		});
-		child.stdin.end(JSON.stringify({ entry, sources }));
+		child.stdin.end(JSON.stringify({ entry, sources, aliasRoots }));
 	});
 }
 
 export async function exportArtifact(
 	memory: Memory,
 	meta: ArtifactMeta,
-	opts: { themeCss?: string; outFile?: string; overwrite?: boolean } = {},
+	entry: string,
+	opts: { themeCss?: string; outFile?: string; overwrite?: boolean; aliasRoots?: string[] } = {},
 ): Promise<ExportResult> {
-	const { entry } = artifactPaths(meta.id);
-	const bundle = await bundleInWorker(entry, [entry]);
+	const bundle = await bundleInWorker(entry, [entry], opts.aliasRoots ?? []);
 	const css = [bundle.css, opts.themeCss ?? ""].filter(Boolean).join("\n");
 	const snapshot = collectSnapshot(memory, meta);
 	const html = renderHtml({ title: meta.title, css, js: bundle.js, snapshot });
@@ -171,13 +181,7 @@ export async function exportArtifact(
 		},
 	};
 	if (opts.outFile) {
-		// "wx": never replace (or write through a symlink at) an existing path unless asked.
-		try {
-			await writeFile(opts.outFile, html, { encoding: "utf8", flag: opts.overwrite ? "w" : "wx" });
-		} catch (e) {
-			if ((e as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`${opts.outFile} already exists`);
-			throw e;
-		}
+		await writeExportFile(opts.outFile, html, opts.overwrite === true);
 		result.file = opts.outFile;
 	}
 	return result;

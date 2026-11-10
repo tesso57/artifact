@@ -15,11 +15,18 @@ Import from `@/components/ui/<name>` (shadcn/ui, new-york style) and `@/componen
 | `StatCard title value delta? hint? icon? loading? invert?` | KPI numbers; `delta` is a % change, `invert` when down is good |
 | `ChartCard title description? action? height?` | a card holding one recharts chart (wraps `ResponsiveContainer`) |
 | `axisProps`, `gridProps`, `tooltipProps`, `CHART_COLORS` | spread onto recharts parts for themed charts |
+| `GanttChart tasks className? empty? aria-label?` | read-only timeline with inclusive dates and optional progress |
+| `Markdown` | themed GitHub-flavored Markdown from a string (raw HTML ignored) |
 | `DataTable data columns loading? search? pageSize? initialSort? onRowClick? toolbar? empty?` | any list of records |
 | `createColumns<Row>()`, `SortHeader` | columns for `DataTable` |
 | `QueryState query loading? empty? isEmpty?` `{(data) => …}` | render any `useQuery` result with loading/error(retry)/empty |
-| `McpQuery tool args? select? refetchInterval?` `{(data, text) => …}` | call an MCP tool and render its data with all states |
+| `McpQuery tool args? select? isEmpty? refetchInterval?` `{(data, text) => …}` | call an MCP tool and render its data with all states; `isEmpty` overrides the default empty check |
 | `LoadingState`, `ErrorState`, `EmptyState`, `MutationError` | the same states on their own |
+
+`QueryState` and `McpQuery` offer retry for failed queries. Errors thrown by local `select`
+or `isEmpty` callbacks are displayed without retrying the underlying tool.
+`DataTable` rows with `onRowClick` can also be activated with Enter or Space; interactive
+controls inside a row keep their own actions without activating the row.
 
 ```tsx
 import { McpQuery, Page, PageHeader, Section, Grid, StatCard, DataTable, createColumns, SortHeader } from "@/components/blocks";
@@ -54,6 +61,20 @@ export default function Issues() {
 	);
 }
 ```
+
+Project timelines and formatted text:
+
+```tsx
+import { GanttChart, Markdown } from "@/components/blocks";
+
+<GanttChart tasks={[{ id: "design", label: "Design", start: "2026-11-01", end: "2026-11-07", progress: 60 }]} />
+<Markdown>{"## Notes\n\n- [x] Scope agreed\n- [ ] Review"}</Markdown>
+```
+
+Gantt dates are inclusive `YYYY-MM-DD` calendar dates. `progress` is an optional percentage
+from 0 to 100; invalid dates or progress are shown as errors. Markdown supports GitHub-flavored tables and task lists;
+raw HTML is ignored and unsafe links are filtered.
+Use `aria-label` to give each chart a distinct accessible name when a page has multiple timelines.
 
 Charts — recharts with theme tokens, always inside `ChartCard`:
 

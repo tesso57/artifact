@@ -10,6 +10,7 @@
     "viewer/src/sdk/index.ts",
     "viewer/src/components/ui/*.tsx",
     "viewer/src/components/blocks/index.ts",
+    "skills/artifacts/templates/*/template.tsx",
     "test/unit/**/*.test.ts",
     "test/e2e/*.ts"
   ],
@@ -17,6 +18,7 @@
     "extension/**/*.ts",
     "shared/**/*.ts",
     "viewer/**/*.{ts,tsx}",
+    "skills/artifacts/templates/**/*.tsx",
     "test/**/*.ts"
   ],
   "ignore": [

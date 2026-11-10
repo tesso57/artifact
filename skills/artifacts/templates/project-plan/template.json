@@ -1,0 +1,6 @@
+{
+  "title": "Project plan",
+  "description": "A project timeline with task progress and a formatted Markdown brief.",
+  "useCases": ["project schedules and milestones", "roadmaps with a written project brief"],
+  "tags": ["gantt", "timeline", "project", "markdown"]
+}

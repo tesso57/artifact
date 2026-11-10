@@ -21,12 +21,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run knip
+      - run: npm run check:package
 
   windows:
     name: Unit tests on Windows
@@ -35,11 +36,43 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run check:package
+
+  minimum-node:
+    name: Unit and end-to-end tests on minimum supported Node
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+
+  node23-daemon:
+    name: End-to-end with Node 23.0 daemon
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 23.0.0
+      - run: echo "PI_ARTIFACTS_NODE=$(command -v node)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
 
   e2e:
     name: Templates and end-to-end (pi sessions + daemon + MCP + export)
@@ -48,7 +81,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
@@ -58,6 +91,11 @@ jobs:
         run: npm run test:e2e
         env:
           E2E_SCREENSHOT: ${{ runner.temp }}/screenshots/e2e.png
+      - name: Test artifact directory with URL delimiters
+        run: npm run test:e2e
+        env:
+          PI_ARTIFACTS_DIR: "${{ runner.temp }}/pi artifacts #?%"
+          PI_ARTIFACTS_TEMPLATES: "${{ runner.temp }}/pi-safe-templates"
       - name: Daemon log
         if: failure()
         run: cat /tmp/pi-artifacts-*/.state/viewer.log || true
@@ -69,17 +107,32 @@ jobs:
           if-no-files-found: ignore
 
   install:
-    name: Install from npm pack and run e2e (package inside node_modules)
+    name: Install from npm pack and run e2e (artifacts ${{ matrix.path }}, temp ${{ matrix.temp }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - path: normal
+            temp: normal
+          - path: "special #?%"
+            temp: normal
+          - path: normal
+            temp: "special #?%"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:pack
+      - run: |
+          mkdir -p "$TMPDIR"
+          npm run test:pack
+        env:
+          PI_ARTIFACTS_DIR: "${{ runner.temp }}/pi-artifacts-${{ matrix.path }}"
+          TMPDIR: "${{ runner.temp }}/pi-install-${{ matrix.temp }}"
       - name: Daemon log
         if: failure()
-        run: cat /tmp/pi-artifacts-*/.state/viewer.log || true
+        run: find "${{ runner.temp }}/pi-artifacts-${{ matrix.path }}" -name viewer.log -exec cat {} + || true

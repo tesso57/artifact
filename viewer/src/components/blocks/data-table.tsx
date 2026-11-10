@@ -14,7 +14,7 @@ import {
 	useTable,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -96,6 +96,10 @@ export function DataTable<TRow extends RowData>({
 }) {
 	const [query, setQuery] = useState("");
 	const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: pageSize || Number.MAX_SAFE_INTEGER });
+	useEffect(() => {
+		const nextSize = pageSize || Number.MAX_SAFE_INTEGER;
+		setPagination((current) => current.pageSize === nextSize ? current : { pageIndex: 0, pageSize: nextSize });
+	}, [pageSize]);
 	const table = useTable({
 		features: dataTableFeatures,
 		columns,
@@ -138,7 +142,7 @@ export function DataTable<TRow extends RowData>({
 						{table.getHeaderGroups().map((g) => (
 							<TableRow key={g.id}>
 								{g.headers.map((h) => (
-									<TableHead key={h.id}>{h.isPlaceholder ? null : <table.FlexRender header={h} />}</TableHead>
+									<TableHead key={h.id} aria-sort={h.column.getIsSorted() === "asc" ? "ascending" : h.column.getIsSorted() === "desc" ? "descending" : undefined}>{h.isPlaceholder ? null : <table.FlexRender header={h} />}</TableHead>
 								))}
 							</TableRow>
 						))}
@@ -158,8 +162,18 @@ export function DataTable<TRow extends RowData>({
 							table.getRowModel().rows.map((r) => (
 								<TableRow
 									key={r.id}
-									className={cn(onRowClick && "cursor-pointer")}
-									onClick={onRowClick ? () => onRowClick(r.original) : undefined}
+									className={cn(onRowClick && "focus-visible:ring-ring cursor-pointer focus-visible:ring-2 focus-visible:outline-none")}
+									tabIndex={onRowClick ? 0 : undefined}
+									aria-description={onRowClick ? "Press Enter or Space to activate this row" : undefined}
+									onClick={onRowClick ? (event) => {
+										if (event.target instanceof Element && event.target.closest('a, button, input, label, select, textarea, summary, [role="button"], [role="link"], [contenteditable="true"]')) return;
+										onRowClick(r.original);
+									} : undefined}
+									onKeyDown={onRowClick ? (event) => {
+										if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+										event.preventDefault();
+										onRowClick(r.original);
+									} : undefined}
 								>
 									{r.getAllCells().map((c) => (
 										<TableCell key={c.id}>

@@ -14,6 +14,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerArtifactsCommand } from "./command.ts";
 import { ArtifactsRuntime } from "./runtime.ts";
 import { registerArtifactExport } from "./tools/artifact-export.ts";
+import { registerArtifactLink } from "./tools/artifact-link.ts";
 import { registerArtifactMemory } from "./tools/artifact-memory.ts";
 import { registerArtifactTemplate } from "./tools/artifact-template.ts";
 import { registerArtifactWrite } from "./tools/artifact-write.ts";
@@ -30,6 +31,7 @@ export default function piArtifacts(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => runtime.shutdown());
 
 	registerArtifactWrite(pi, runtime);
+	registerArtifactLink(pi, runtime);
 	registerArtifactMemory(pi, runtime);
 	registerArtifactTemplate(pi, runtime);
 	registerArtifactExport(pi, runtime);

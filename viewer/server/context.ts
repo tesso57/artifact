@@ -3,14 +3,15 @@
  * functions (browser) and the exporter. One instance per daemon process, reachable from
  * server functions through `globalThis` (they run in Vite's module runner).
  */
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 import { readFile } from "node:fs/promises";
 import { realpath } from "node:fs/promises";
-import { join, resolve as resolvePath, sep } from "node:path";
+import { isAbsolute, join, relative, resolve as resolvePath, sep } from "node:path";
 import type { ViteDevServer } from "vite";
-import { isValidId, SHARED_SCOPE, TEMPLATE_PREFIX } from "../../shared/ids.ts";
-import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, fsUrl, userTemplatesDir } from "../../shared/paths.ts";
+import { assertArtifactId, assertMemoryScope, isValidId, isValidRuntimeId, TEMPLATE_PREFIX } from "../../shared/ids.ts";
+import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, fsUrl, stateDir, userTemplatesDir } from "../../shared/paths.ts";
 import {
 	SESSION_COOKIE,
 	type ArtifactMeta,
@@ -20,15 +21,19 @@ import {
 	type McpToolInfo,
 	mcpAllowed,
 	mcpCallKey,
+	normalizeMcpArgs,
 	normalizeMcpToolName,
 	type RuntimeError,
 } from "../../shared/protocol.ts";
-import { MEMORY_CHANGED_EVENT } from "../src/lib/events.ts";
+import { MEMORY_CHANGED_EVENT, TEMPLATE_CHANGED_EVENT } from "../src/lib/events.ts";
 import { type ExportResult, exportArtifact } from "./export.ts";
 import { Memory } from "./memory.ts";
 import { SessionRegistry } from "./sessions.ts";
 import { artifactPaths, deleteArtifact, listArtifacts, readMeta, type WriteArtifactInput, writeArtifact } from "./store.ts";
 import { getTemplate } from "./templates.ts";
+import { VIEWER_DIR } from "./vite-shared.ts";
+import { needsVirtualModule, parseVirtualModuleUrl, virtualModuleUrl } from "./virtual-modules.ts";
+import { RuntimeAliases } from "./runtime-aliases.ts";
 
 const CONTEXT_KEY = Symbol.for("pi-artifacts.daemon");
 /** Only same-origin paths ("/a/x"), never "//host", "/\\host" or control characters. */
@@ -60,7 +65,7 @@ export class DaemonContext {
 	readonly secret = randomBytes(24).toString("base64url");
 	server: ViteDevServer | undefined;
 	port = 0;
-	lastActivity = Date.now();
+	lastActivity = performance.now();
 	/** Set by the daemon entry: how `/__pi/api/shutdown` stops it (works on Windows too). */
 	onShutdown: () => void = () => process.exit(0);
 	/** One-time login tokens (in links given to people) → expiry and where they lead. */
@@ -69,14 +74,18 @@ export class DaemonContext {
 	private spentLinks = new Map<string, { exp: number; next: string }>();
 	/** Browser sessions (cookie values) → expiry. Distinct from the API secret. */
 	private browserSessions = new Map<string, number>();
-	private errors = new Map<string, RuntimeError[]>();
+	private errors = new Map<string, { sequence: number; error: RuntimeError }[]>();
+	private errorSequence = 0;
 	private viewing = new Map<string, number>();
+	private pendingMcpCalls = new Set<{ id: string; valid: boolean; key?: string }>();
 
 	readonly version: string;
+	readonly aliases: RuntimeAliases;
 
-	constructor(version: string, memory?: Memory) {
+	constructor(version: string, memory?: Memory, aliases = new RuntimeAliases([])) {
 		this.version = version;
 		this.memory = memory ?? new Memory();
+		this.aliases = aliases;
 	}
 
 	static install(ctx: DaemonContext): void {
@@ -95,7 +104,14 @@ export class DaemonContext {
 
 	/** Record activity that should keep the daemon from its idle exit. */
 	touch(): void {
-		this.lastActivity = Date.now();
+		this.lastActivity = performance.now();
+	}
+
+	/** Keep unused links alive for their advertised lifetime even when pi has disconnected. */
+	isIdle(idleMs: number): boolean {
+		const now = performance.now();
+		this.pruneLinks(now);
+		return this.sessions.size === 0 && this.links.size === 0 && now - this.lastActivity > idleMs;
 	}
 
 	// ---- links ---------------------------------------------------------------------
@@ -105,7 +121,7 @@ export class DaemonContext {
 		return `${SESSION_COOKIE}_${this.port}`;
 	}
 
-	private pruneLinks(now = Date.now()) {
+	private pruneLinks(now = performance.now()) {
 		for (const map of [this.links, this.spentLinks]) for (const [t, l] of map) if (l.exp < now) map.delete(t);
 	}
 
@@ -125,7 +141,7 @@ export class DaemonContext {
 	link(next = "/"): string {
 		this.pruneLinks();
 		const token = randomBytes(18).toString("base64url");
-		this.links.set(token, { exp: Date.now() + LINK_TTL_MS, next: localPath(next) });
+		this.links.set(token, { exp: performance.now() + LINK_TTL_MS, next: localPath(next) });
 		return `${this.origin}/__pi/login?t=${token}`;
 	}
 
@@ -144,7 +160,7 @@ export class DaemonContext {
 	 * deleted on use, so a link that leaked (logs, model context) stops working once opened.
 	 */
 	login(token: string | null): { session: string; next: string } | undefined {
-		const now = Date.now();
+		const now = performance.now();
 		this.pruneLinks(now);
 		const link = token ? this.spend(token) : undefined;
 		if (!link) return undefined;
@@ -158,7 +174,7 @@ export class DaemonContext {
 		if (!value) return false;
 		const exp = this.browserSessions.get(value);
 		if (exp === undefined) return false;
-		if (exp < Date.now()) {
+		if (exp < performance.now()) {
 			this.browserSessions.delete(value);
 			return false;
 		}
@@ -179,38 +195,75 @@ export class DaemonContext {
 		return listArtifacts();
 	}
 
+	moduleUrl(kind: "a" | "t", name: string, file: string): string {
+		const served = this.aliases.map(file);
+		return needsVirtualModule(served) ? virtualModuleUrl(kind, name) : fsUrl(served);
+	}
+
 	/** What the artifact page needs: meta plus the module URL Vite serves. */
 	async artifactView(id: string) {
 		const meta = await readMeta(id);
 		if (!meta) throw new Error(`Artifact "${id}" not found`);
-		return { ...meta, mcp: meta.mcp ?? [], moduleUrl: fsUrl(artifactPaths(id).entry) };
+		const file = artifactPaths(id).entry;
+		return { ...meta, mcp: meta.mcp ?? [], moduleUrl: this.moduleUrl("a", id, file) };
 	}
 
 	/** A template rendered like an artifact (`/t/<name>`), with memory scope `template-<name>`. */
 	async templateView(name: string) {
 		const t = await getTemplate(name, BUNDLED_TEMPLATES_DIR);
 		if (!t) throw new Error(`Template "${name}" not found`);
-		return { id: `${TEMPLATE_PREFIX}${t.name}`, title: `Template: ${t.title}`, description: t.description, mcp: t.mcp ?? [], createdAt: 0, updatedAt: 0, moduleUrl: fsUrl(t.path) };
+		const revision = t.revision ?? createHash("sha256").update(t.source).update("\0").update(t.code).digest("hex");
+		return { id: `${TEMPLATE_PREFIX}${t.name}`, instanceId: revision, title: `Template: ${t.title}`, description: t.description, mcp: t.mcp ?? [], createdAt: 0, updatedAt: 0, moduleUrl: this.moduleUrl("t", t.name, t.path) };
+	}
+
+	/** Resolve only artifact and template entries under the allowed roots. */
+	async moduleFile(moduleUrl: string): Promise<string> {
+		const virtual = parseVirtualModuleUrl(moduleUrl);
+		let asked: string;
+		if (virtual?.kind === "a") {
+			if (!(await readMeta(virtual.name))) throw new Error(`Artifact "${virtual.name}" not found`);
+			asked = artifactPaths(virtual.name).entry;
+		} else if (virtual?.kind === "t") {
+			const template = await getTemplate(virtual.name, BUNDLED_TEMPLATES_DIR);
+			if (!template) throw new Error(`Template "${virtual.name}" not found`);
+			asked = template.path;
+		} else {
+			asked = resolvePath(decodeURIComponent(moduleUrl.replace(/^\/@fs\/?/, "/")).replace(/^\/([A-Za-z]:)/, "$1"));
+		}
+		const file = await realpath(asked).catch(() => asked);
+		const state = await realpath(stateDir()).catch(() => resolvePath(stateDir()));
+		const fromState = relative(state, file);
+		if (fromState === "" || (fromState !== ".." && !fromState.startsWith(`..${sep}`) && !isAbsolute(fromState))) throw new Error("Not an artifact module");
+		const roots = await Promise.all([
+			{ path: artifactsDir(), entry: "index.tsx", artifact: true },
+			{ path: userTemplatesDir(), entry: "template.tsx", artifact: false },
+			{ path: BUNDLED_TEMPLATES_DIR, entry: "template.tsx", artifact: false },
+		].map(async (root) => ({ ...root, path: await realpath(root.path).catch(() => resolvePath(root.path)) })));
+		const allowed = roots.some((root) => {
+			const parts = relative(root.path, file).split(sep);
+			if (parts.length !== 2 || parts[1] !== root.entry || !isValidId(parts[0])) return false;
+			if (!root.artifact) return true;
+			try { assertArtifactId(parts[0]); return true; } catch { return false; }
+		});
+		if (!allowed) throw new Error("Not an artifact module");
+		return file;
 	}
 
 	/** Source of an artifact or template module, for the Code tab (nothing else is readable). */
 	async moduleSource(moduleUrl: string): Promise<string> {
-		const asked = resolvePath(moduleUrl.replace(/^\/@fs\/?/, "/").replace(/^\/([A-Za-z]:)/, "$1"));
-		const file = await realpath(asked).catch(() => asked);
-		const roots = await Promise.all(
-			[artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR].map(async (r) => (await realpath(r).catch(() => resolvePath(r))) + sep),
-		);
-		if (!/[\\/](index|template)\.tsx$/.test(file) || !roots.some((r) => file.startsWith(r))) throw new Error("Not an artifact module");
-		return readFile(file, "utf8");
+		return readFile(await this.moduleFile(moduleUrl), "utf8");
 	}
 
 	/** Transform a module like the browser would; returns the error message, if any. */
-	async compileCheck(file: string): Promise<string | undefined> {
+	async compileCheck(file: string, moduleUrl = fsUrl(file)): Promise<string | undefined> {
 		const env = this.server?.environments.client;
 		if (!env) return undefined;
 		for (const m of env.moduleGraph.getModulesByFile(file) ?? []) env.moduleGraph.invalidateModule(m);
+		const virtual = parseVirtualModuleUrl(moduleUrl) && env.moduleGraph.getModuleById(moduleUrl);
+		if (virtual) env.moduleGraph.invalidateModule(virtual);
 		try {
-			await env.transformRequest(fsUrl(file));
+			// Match Vite's HTTP middleware, which decodes the request before transforming it.
+			await env.transformRequest(decodeURI(moduleUrl));
 			return undefined;
 		} catch (error) {
 			const e = error as { message?: string; frame?: string };
@@ -220,29 +273,76 @@ export class DaemonContext {
 		}
 	}
 
+	/** Re-scan newly saved sources and refresh the linked stylesheet in open tabs. */
+	async refreshStyles(): Promise<void> {
+		const env = this.server?.environments.client;
+		if (!env || !this.server) return;
+		const modules = env.moduleGraph.getModulesByFile(join(VIEWER_DIR, "src/styles.css"));
+		if (!modules?.size) return; // The first stylesheet request will scan the new source.
+		for (const module of modules) env.moduleGraph.invalidateModule(module);
+		await env.transformRequest("/src/styles.css?direct");
+		this.server.ws.send({ type: "update", updates: [{ type: "css-update", path: "/src/styles.css", acceptedPath: "/src/styles.css", timestamp: Date.now() }] });
+	}
+
 	async writeArtifact(input: WriteArtifactInput, waitForRuntimeMs = 2500): Promise<WriteResult> {
-		const started = Date.now();
-		const { meta, created } = await writeArtifact(input);
+		let started = 0;
+		let compileError: string | undefined;
+		let observed = false;
+		let runtimeErrors: RuntimeError[] = [];
+		const { meta, created } = await writeArtifact(input, undefined, {
+			beforeWrite: () => { started = this.errorSequence; },
+			afterWrite: async (written) => {
+				for (const call of this.pendingMcpCalls) if (call.id === written.id) call.valid = false;
+				this.memory.clearArtifactMcp(written.id);
+				const file = artifactPaths(written.id).entry;
+				compileError = await this.compileCheck(this.aliases.map(file), this.moduleUrl("a", written.id, file));
+				await this.refreshStyles();
+				observed = !compileError && this.isViewing(written.id);
+				// Give an open tab time to hot-reload and report what broke.
+				if (observed && waitForRuntimeMs > 0) await new Promise((r) => setTimeout(r, waitForRuntimeMs));
+				runtimeErrors = (this.errors.get(written.id) ?? []).filter((entry) => entry.sequence > started).map((entry) => entry.error);
+			},
+		});
 		const { entry } = artifactPaths(meta.id);
-		const compileError = await this.compileCheck(entry);
-		const observed = !compileError && this.isViewing(meta.id);
-		// Give an open tab time to hot-reload and report what broke.
-		if (observed && waitForRuntimeMs > 0) await new Promise((r) => setTimeout(r, waitForRuntimeMs));
-		const runtimeErrors = (this.errors.get(meta.id) ?? []).filter((e) => e.at >= started);
 		return { meta, created, path: entry, compileError, runtimeErrors, observed };
 	}
 
 	async deleteArtifact(id: string): Promise<boolean> {
-		const deleted = await deleteArtifact(id);
+		return deleteArtifact(id, undefined, (deleted) => {
+			for (const call of this.pendingMcpCalls) if (call.id === id) call.valid = false;
+			if (!deleted) return;
+			this.memory.forget(id);
+			this.errors.delete(id);
+			this.memoryChanged(id);
+		});
+	}
+
+	/** Clear a deleted user template's preview state while its file lock is held. */
+	forgetTemplatePreview(name: string, deleted = true): void {
+		const id = `${TEMPLATE_PREFIX}${name}`;
+		for (const call of this.pendingMcpCalls) if (call.id === id) call.valid = false;
+		if (!deleted) return;
 		this.memory.forget(id);
 		this.errors.delete(id);
-		return deleted;
+		this.viewing.delete(id);
+		this.memoryChanged(id);
+		this.templateChanged(name);
+	}
+
+	invalidateTemplateMcp(name: string): void {
+		const id = `${TEMPLATE_PREFIX}${name}`;
+		for (const call of this.pendingMcpCalls) if (call.id === id) call.valid = false;
+		this.memory.clearArtifactMcp(id);
+	}
+
+	templateChanged(name: string): void {
+		this.server?.ws.send({ type: "custom", event: TEMPLATE_CHANGED_EVENT, data: { name } });
 	}
 
 	reportError(id: string, message: string, stack?: string): void {
-		if (!isValidId(id)) return;
+		if (!isValidRuntimeId(id)) return;
 		const list = this.errors.get(id) ?? [];
-		list.push({ message: message.slice(0, 2000), stack: stack?.slice(0, 4000), at: Date.now() });
+		list.push({ sequence: ++this.errorSequence, error: { message: message.slice(0, 2000), stack: stack?.slice(0, 4000), at: Date.now() } });
 		this.errors.set(id, list.slice(-10));
 	}
 
@@ -252,20 +352,19 @@ export class DaemonContext {
 	}
 
 	noteViewing(id: string): void {
-		if (isValidId(id)) this.viewing.set(id, Date.now());
+		if (isValidRuntimeId(id)) this.viewing.set(id, performance.now());
 	}
 
 	isViewing(id: string): boolean {
-		return (this.viewing.get(id) ?? 0) > Date.now() - VIEWING_TTL_MS;
+		const lastSeen = this.viewing.get(id);
+		return lastSeen !== undefined && lastSeen > performance.now() - VIEWING_TTL_MS;
 	}
 
 	// ---- memory ----------------------------------------------------------------------
 
-	/** Validate a memory scope; reads of "shared" by an artifact are recorded for exports. */
-	scope(scope: unknown, from?: unknown, key?: string): string {
-		if (!isValidId(scope)) throw new Error(`Invalid memory scope ${JSON.stringify(scope)}`);
-		// ("*" in shared_reads means "listed every shared key"; it is rejected as a real key.)
-		if (scope === SHARED_SCOPE && isValidId(from)) this.memory.noteSharedRead(from, key ?? "*");
+	/** Validate a memory scope. */
+	scope(scope: unknown): string {
+		assertMemoryScope(scope);
 		return scope;
 	}
 
@@ -297,35 +396,48 @@ export class DaemonContext {
 	}
 
 	async mcpCall(artifactId: unknown, rawName: unknown, args: unknown): Promise<McpCallResult> {
-		if (!isValidId(artifactId)) throw new Error("MCP calls need the calling artifact's id");
+		if (!isValidRuntimeId(artifactId)) throw new Error("MCP calls need the calling artifact's id");
 		if (typeof rawName !== "string") throw new Error("MCP tool name must be a string");
 		const name = normalizeMcpToolName(rawName);
-		const meta = await this.callerMeta(artifactId);
-		if (!meta) throw new Error(`Unknown artifact "${artifactId}"`);
-		if (!mcpAllowed(meta.mcp, name)) {
-			throw new Error(
-				`${rawName} is not in this artifact's MCP allowlist (${meta.mcp?.join(", ") || "empty"}). Ask the agent to add it to the "mcp" list of artifact_write.`,
-			);
+		const callArgs = normalizeMcpArgs(args);
+		const pending = { id: artifactId, valid: true, key: mcpCallKey(name, callArgs) };
+		for (const call of this.pendingMcpCalls) {
+			if (call.id === artifactId && call.key === pending.key) call.valid = false;
 		}
-		const session = this.sessions.pick(meta.sessionId, name);
-		if (!session) throw new Error("No pi session is connected: start pi (or run /artifacts in pi)");
-		const body: BridgeCallRequest = {
-			name,
-			args: (args && typeof args === "object" ? args : {}) as Record<string, unknown>,
-			artifactId,
-			artifactTitle: meta.title,
-		};
-		const res = await fetch(new URL("/mcp/call", session.bridgeUrl), {
-			method: "POST",
-			headers: { [BRIDGE_TOKEN_HEADER]: session.bridgeToken, "content-type": "application/json" },
-			body: JSON.stringify(body),
-			signal: AbortSignal.timeout(180_000),
-		});
-		const json = (await res.json()) as McpCallResult & { error?: string };
-		if (!res.ok) throw new Error(json.error ?? `Bridge error ${res.status}`);
-		const result: McpCallResult = { isError: json.isError, text: json.text, data: json.data };
-		if (!result.isError) this.memory.cacheMcp(artifactId, mcpCallKey(name, body.args), result);
-		return result;
+		this.pendingMcpCalls.add(pending);
+		try {
+			const meta = await this.callerMeta(artifactId);
+			if (!meta) throw new Error(`Unknown artifact "${artifactId}"`);
+			if (!mcpAllowed(meta.mcp, name)) {
+				throw new Error(
+					`${rawName} is not in this artifact's MCP allowlist (${meta.mcp?.join(", ") || "empty"}). Ask the agent to add it to the "mcp" list of artifact_write.`,
+				);
+			}
+			const body: BridgeCallRequest = {
+				name,
+				args: callArgs,
+				artifactId,
+				artifactTitle: meta.title,
+			};
+			if (pending.valid) {
+				this.memory.clearMcp(artifactId, pending.key);
+			}
+			const session = this.sessions.pick(meta.sessionId, name);
+			if (!session) throw new Error("No pi session is connected: start pi (or run /artifacts in pi)");
+			const res = await fetch(new URL("/mcp/call", session.bridgeUrl), {
+				method: "POST",
+				headers: { [BRIDGE_TOKEN_HEADER]: session.bridgeToken, "content-type": "application/json" },
+				body: JSON.stringify(body),
+				signal: AbortSignal.timeout(180_000),
+			});
+			const json = (await res.json()) as McpCallResult & { error?: string };
+			if (!res.ok) throw new Error(json.error ?? `Bridge error ${res.status}`);
+			const result: McpCallResult = { isError: json.isError, text: json.text, data: json.data };
+			if (!result.isError && pending.valid) this.memory.cacheMcp(artifactId, pending.key, result);
+			return result;
+		} finally {
+			this.pendingMcpCalls.delete(pending);
+		}
 	}
 
 	// ---- export ----------------------------------------------------------------------
@@ -333,7 +445,8 @@ export class DaemonContext {
 	async exportArtifact(id: string, outFile?: string, overwrite = false): Promise<ExportResult> {
 		const meta = await readMeta(id);
 		if (!meta) throw new Error(`No artifact "${id}"`);
-		return exportArtifact(this.memory, meta, { themeCss: await this.themeCss(), outFile, overwrite });
+		const entry = await this.moduleFile(fsUrl(artifactPaths(id).entry));
+		return exportArtifact(this.memory, meta, this.aliases.map(entry), { themeCss: await this.themeCss(), outFile, overwrite, aliasRoots: this.aliases.paths });
 	}
 
 	// ---- design ----------------------------------------------------------------------

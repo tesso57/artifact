@@ -160,8 +160,10 @@ export function runtimeRoot(root = PACKAGE_ROOT): string {
 	const stamp = sourceStamp(root, dependencies);
 	const runtimeBase = usableRuntimeDir();
 	const target = join(runtimeBase, stamp);
-	if (existsSync(join(target, ".ready"))) return target;
-	if (existsSync(target)) throw new Error(`Could not finalize runtime at ${target}: path is already occupied`);
+	if (existsSync(target)) {
+		if (existsSync(join(target, ".ready"))) return target;
+		throw new Error(`Could not finalize runtime at ${target}: path is already occupied`);
+	}
 	// Build in a private folder, then rename: concurrent sessions never see a half copy.
 	mkdirSync(runtimeBase, { recursive: true, mode: 0o700 });
 	const tmp = mkdtempSync(`${target}.tmp-`);

@@ -11,6 +11,7 @@
  * - a loopback bridge lets artifacts call this session's MCP tools (allowlisted, approved)
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { artifactsDir } from "../shared/paths.ts";
 import { registerArtifactsCommand } from "./command.ts";
 import { ArtifactsRuntime } from "./runtime.ts";
 import { registerArtifactExport } from "./tools/artifact-export.ts";
@@ -29,6 +30,16 @@ export default function piArtifacts(pi: ExtensionAPI) {
 		void runtime.connectIfRunning().catch(() => {});
 	});
 	pi.on("session_shutdown", async () => runtime.shutdown());
+
+	// Tell a permission guard (if one listens) that this package's own tools are trusted, and
+	// that its artifacts folder (~/.pi/artifacts, or PI_ARTIFACTS_DIR) may be edited, so
+	// follow-up edits to an artifact's index.tsx are not blocked.
+	pi.on("session_start", () => {
+		for (const tool of ["artifact_write", "artifact_memory", "artifact_template", "artifact_export"]) {
+			pi.events.emit("guard:trust-tool", { tool, by: "artifacts" });
+		}
+		pi.events.emit("guard:trust-dir", { path: artifactsDir(), by: "artifacts" });
+	});
 
 	registerArtifactWrite(pi, runtime);
 	registerArtifactLink(pi, runtime);

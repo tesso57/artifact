@@ -1,0 +1,6 @@
+{
+  "title": "Diagram explainer",
+  "description": "Explains a system with Mermaid diagrams — architecture, a request sequence and a state machine — in tabs, each with a short caption and its source.",
+  "useCases": ["explain how a system, codebase or process fits together", "architecture, flow, sequence, state or ER diagrams", "visual summary of a design or a decision"],
+  "tags": ["diagram", "mermaid", "architecture", "docs"]
+}

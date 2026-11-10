@@ -13,7 +13,9 @@ Import from `@/components/ui/<name>` (shadcn/ui, new-york style) and `@/componen
 | `Section title? description? actions?` | a titled group of content |
 | `Grid cols?={1\|2\|3\|4}` | responsive card grids (1 column on phones) |
 | `StatCard title value delta? hint? icon? loading? invert?` | KPI numbers; `delta` is a % change, `invert` when down is good |
-| `ChartCard title description? action? height?` | a card holding one recharts chart (wraps `ResponsiveContainer`) |
+| `Mermaid chart label? className?` | **any diagram** (flowchart, sequence, state, ER, class, gantt, timeline, mindmap) — renders Mermaid as SVG, follows light/dark, shows syntax errors |
+| `DiagramCard title description? chart` | a card holding one Mermaid diagram (title + caption) |
+| `ChartCard title description? action? height?` | a card holding one recharts chart (wraps `ResponsiveContainer`) — numbers only |
 | `axisProps`, `gridProps`, `tooltipProps`, `CHART_COLORS` | spread onto recharts parts for themed charts |
 | `GanttChart tasks className? empty? aria-label?` | read-only timeline with inclusive dates and optional progress |
 | `Markdown` | themed GitHub-flavored Markdown from a string (raw HTML ignored) |
@@ -76,7 +78,31 @@ from 0 to 100; invalid dates or progress are shown as errors. Markdown supports 
 raw HTML is ignored and unsafe links are filtered.
 Use `aria-label` to give each chart a distinct accessible name when a page has multiple timelines.
 
-Charts — recharts with theme tokens, always inside `ChartCard`:
+Diagrams — Mermaid, always (structure and flow; never hand-built boxes or SVG):
+
+```tsx
+import { DiagramCard, Mermaid } from "@/components/blocks";
+
+<DiagramCard
+	title="Request flow"
+	description="Payment is confirmed before the order is saved."
+	chart={`sequenceDiagram
+  actor C as Customer
+  C->>API: POST /orders
+  API->>Payments: charge
+  Payments-->>API: approved
+  API-->>C: 201 Created`}
+/>
+
+// Inline, without a card (e.g. inside a Section or a Tabs panel):
+<Mermaid chart={`flowchart LR\n  A[Draft] --> B{Review} -->|ok| C[Published]\n  B -->|changes| A`} />
+```
+
+Build `chart` strings from data when the diagram depends on it (e.g. map MCP results to
+`flowchart` nodes); keep node ids simple (`a1`, `svc_api`) and put text in labels:
+`a1["Orders API"]`. Quote labels that contain punctuation.
+
+Charts — recharts with theme tokens, always inside `ChartCard` (numbers only):
 
 ```tsx
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";

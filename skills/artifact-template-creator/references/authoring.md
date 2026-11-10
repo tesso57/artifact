@@ -36,6 +36,8 @@ Rules:
   `EmptyState` explaining what to connect.
 - Use the design system and blocks (`Page`, `PageHeader`, `Section`, `Grid`, `StatCard`,
   `ChartCard`, `DataTable`, `QueryState`/`McpQuery`); no custom colors.
+- Diagrams are Mermaid (`Mermaid` / `DiagramCard`), with the chart source in `CONFIG` or a
+  constant so users can adapt it.
 - Handle loading, error and empty states for every async source.
 - Remember user choices (filters, ranges, toggles) with `useMemory`.
 - Keep it under ~250 lines; split repeated markup into small components in the file.

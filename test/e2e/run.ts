@@ -1413,6 +1413,28 @@ export default function ReplayDemo() {
 	await replayOffline.close();
 	step("offline MCP replay is isolated from caller mutations");
 
+	// Mermaid diagrams render in the viewer and in an offline export.
+	first.respond([
+		fauxAssistantMessage(
+			fauxToolCall("artifact_write", {
+				id: "e2e-diagram",
+				title: "Diagram",
+				code: readFileSync(join(PACKAGE, "skills/artifacts/templates/diagram/template.tsx"), "utf8"),
+			}),
+		),
+		fauxAssistantMessage(fauxToolCall("artifact_export", { id: "e2e-diagram", path: "diagram.html" })),
+		fauxAssistantMessage("ok"),
+	]);
+	await first.prompt("Draw the checkout flow");
+	const diagram = await browser.newPage();
+	await diagram.goto(openLink(first.lastResult("artifact_write").text));
+	await diagram.locator("[data-mermaid] svg").first().waitFor({ timeout: 30000 });
+	await diagram.close();
+	const offlineDiagram = await browser.newPage();
+	await offlineDiagram.goto(pathToFileURL(join(first.cwd, "diagram.html")).href);
+	await offlineDiagram.locator("[data-mermaid] svg").first().waitFor({ timeout: 30000 });
+	await offlineDiagram.close();
+	step("Mermaid diagrams render in the viewer and offline in an export");
 
 	// 6. Templates: list, save (compile-checked) and preview.
 	first.respond([
@@ -1432,7 +1454,7 @@ export default function ReplayDemo() {
 	await first.prompt("Make a template");
 	const [listed, saved] = first.results("artifact_template").slice(-2);
 	const names = (JSON.parse(listed.text).templates as { name: string }[]).map((t) => t.name);
-	for (const n of ["dashboard", "data-table", "form-tool", "mcp-explorer", "project-plan", "style-guide"]) if (!names.includes(n)) throw new Error(`template ${n} missing: ${names}`);
+	for (const n of ["dashboard", "data-table", "diagram", "form-tool", "mcp-explorer", "project-plan", "style-guide"]) if (!names.includes(n)) throw new Error(`template ${n} missing: ${names}`);
 	const preview = await browser.newPage();
 	await preview.goto(openLink(saved.text, "Preview"));
 	await preview.getByText("hello template").waitFor({ timeout: 20000 });

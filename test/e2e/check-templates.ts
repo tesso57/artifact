@@ -36,7 +36,11 @@ try {
 			});
 			await page.goto(await daemon.link(`/t/${name}`), { waitUntil: "networkidle" });
 			await page.waitForTimeout(1200);
-			if (await page.getByText(/The artifact failed to load|The artifact crashed while rendering|Could not load the template/).count()) errors.push(await page.innerText("body"));
+			// Mermaid diagrams must render as SVG (they load lazily).
+			if (name === "diagram") {
+				await page.locator("[data-mermaid] svg").first().waitFor({ timeout: 20000 }).catch(() => errors.push("no Mermaid SVG rendered"));
+			}
+			if (await page.getByText(/The artifact failed to load|The artifact crashed while rendering|Could not load the template|Invalid Mermaid diagram/).count()) errors.push(await page.innerText("body"));
 			if (shots) await page.screenshot({ path: join(shots, `template-${name}-${theme}.png`), fullPage: true });
 			await page.close();
 			if (errors.length) failures.push(`${name} (${theme}): ${errors.join(" | ").slice(0, 800)}`);

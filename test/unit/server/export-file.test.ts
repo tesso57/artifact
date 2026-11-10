@@ -19,6 +19,20 @@ it("replaces an existing export only after the new content is ready", async () =
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+it("allows only one concurrent export to create a new destination", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-export-race-"));
+	try {
+		const file = join(dir, "report.html");
+		const contents = ["a".repeat(65536), "b".repeat(65536)];
+		const results = await Promise.allSettled(contents.map((html) => writeExportFile(file, html, false)));
+		expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+		const failures = results.filter((result) => result.status === "rejected");
+		expect(failures).toHaveLength(1);
+		expect((failures[0] as PromiseRejectedResult).reason.message).toMatch(/already exists/);
+		expect(contents).toContain(await readFile(file, "utf8"));
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 it("replaces a destination symlink without modifying its target", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-export-file-"));
 	try {

@@ -362,7 +362,7 @@ describe("api", () => {
 	it("uses a restricted virtual module for artifact paths containing URL delimiters", async () => {
 		const previous = process.env.PI_ARTIFACTS_DIR;
 		try {
-			process.env.PI_ARTIFACTS_DIR = join(dir, "path # ? %");
+			process.env.PI_ARTIFACTS_DIR = join(dir, process.platform === "win32" ? "path # %" : "path # ? %");
 			await ctx.writeArtifact({ id: "virtual-test", title: "Virtual", code: "export default () => null" }, 0);
 			const view = await ctx.artifactView("virtual-test");
 			expect(view.moduleUrl).toBe("/__pi_virtual__/a/virtual-test/index.tsx");

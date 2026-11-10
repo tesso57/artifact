@@ -29,9 +29,11 @@ describe("formatWriteResult", () => {
 
 describe("exports", () => {
 	it("resolves targets and lists what an export embeds", () => {
-		expect(exportTarget("/w", "demo")).toBe("/w/demo.html");
-		expect(exportTarget("/w", "demo", "@out/x.html")).toBe("/w/out/x.html");
-		expect(exportTarget("/w", "demo", "/abs/x.html")).toBe("/abs/x.html");
+		const cwd = resolve("w");
+		const absolute = resolve("abs", "x.html");
+		expect(exportTarget(cwd, "demo")).toBe(join(cwd, "demo.html"));
+		expect(exportTarget(cwd, "demo", "@out/x.html")).toBe(join(cwd, "out", "x.html"));
+		expect(exportTarget(cwd, "demo", absolute)).toBe(absolute);
 		const text = formatExport({ file: "/w/d.html", bytes: 2048, embedded: { memoryKeys: ["notes"], sharedKeys: [], mcpCalls: ['mcp__example__read {"project":"alpha"}', 'mcp__example__read {"project":"beta"}'] } });
 		expect(text).toMatch(/2 KB[\s\S]*1 memory key\(s\) \(notes\)[\s\S]*2 MCP result/);
 		expect(text).toContain('mcp__example__read {"project":"alpha"}');

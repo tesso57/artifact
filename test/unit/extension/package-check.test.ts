@@ -17,14 +17,17 @@ it("uses the npm CLI supplied by npm, even when npm is not on PATH", () => {
 		writeFileSync(join(dir, "package.json"), JSON.stringify({ files: [], pi: { extensions: ["./extension/sample.ts"], skills: ["./skills"] } }));
 		const paths = ["package.json", "README.md", "LICENSE", ...names.map((name) => `${name}/sample.ts`)];
 		const npmCli = join(dir, "mock npm.cjs");
+		const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !["npm_execpath", "path"].includes(key.toLowerCase())));
+		env.PATH = dir;
+		env.npm_execpath = npmCli;
 		writeFileSync(npmCli, `process.stdout.write(${JSON.stringify(JSON.stringify([{ files: paths.map((path) => ({ path })) }]))});`);
 		const output = execFileSync(process.execPath, [resolve("scripts/check-package.mjs")], {
-			cwd: dir, encoding: "utf8", env: { ...process.env, PATH: dir, npm_execpath: npmCli },
+			cwd: dir, encoding: "utf8", env,
 		});
 		expect(output).toContain("Package includes 9 required files.");
 		writeFileSync(npmCli, `process.stdout.write(${JSON.stringify(JSON.stringify([{ files: paths.filter((path) => path !== "docs/images/sample.ts").map((path) => ({ path })) }]))});`);
 		expect(() => execFileSync(process.execPath, [resolve("scripts/check-package.mjs")], {
-			cwd: dir, encoding: "utf8", env: { ...process.env, PATH: dir, npm_execpath: npmCli }, stdio: "pipe",
+			cwd: dir, encoding: "utf8", env, stdio: "pipe",
 		})).toThrow(/Missing from npm package: docs\/images\/sample\.ts/);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });

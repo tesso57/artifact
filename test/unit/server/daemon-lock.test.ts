@@ -58,17 +58,28 @@ it("recovers a lock whose owner has exited", async () => {
 it("holds the gate until shutdown even if the PID file is removed", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-lock-gate-held-"));
 	const file = join(dir, "viewer.lock");
+	const module = pathToFileURL(resolve("viewer/server/daemon-lock.ts")).href;
+	const script = `import { acquireLock } from ${JSON.stringify(module)}; if (!(await acquireLock(${JSON.stringify(file)}))) throw new Error("lock not acquired"); console.log("acquired"); setInterval(() => {}, 1000);`;
+	const owner = spawn(process.execPath, [...nodeTsFlags(process.execPath), "--input-type=module", "-e", script]);
 	try {
-		expect(await acquireLock(file)).toBe(true);
+		const [data] = await once(owner.stdout, "data");
+		expect(String(data)).toContain("acquired");
 		await rm(file);
 		expect(await acquireLock(file)).toBe(false);
-		releaseLock(file);
+		const exited = once(owner, "exit");
+		owner.kill();
+		await exited;
 		expect(await acquireLock(file)).toBe(true);
 	} finally {
+		if (owner.exitCode === null && owner.signalCode === null) {
+			const exited = once(owner, "exit");
+			owner.kill();
+			await exited;
+		}
 		releaseLock(file);
 		await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 	}
-}, 15_000);
+}, 20_000);
 
 it("allows only one process to recover an abandoned lock", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-lock-race-"));

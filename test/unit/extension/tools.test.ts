@@ -374,6 +374,44 @@ describe("daemon compatibility", () => {
 		expect(compareVersions(ours, "0.3.0")).toBeGreaterThan(0);
 	});
 
+	it("replaces an older viewer but never shuts down a newer incompatible viewer", async () => {
+		const state = mkdtempSync(join(tmpdir(), "pi-upgrade-test-"));
+		let health = { protocol: 1, version: "0.3.0" };
+		let stopped = false;
+		let shutdowns = 0;
+		const server = createServer((req, res) => {
+			if (req.url === "/__pi/api/shutdown") {
+				shutdowns++;
+				stopped = true;
+				res.end("{}");
+			} else {
+				res.statusCode = stopped ? 503 : 200;
+				res.setHeader("content-type", "application/json");
+				res.end(JSON.stringify(health));
+			}
+		});
+		await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+		const port = (server.address() as AddressInfo).port;
+		process.env.PI_ARTIFACTS_STATE = state;
+		const viewer = { protocol: PROTOCOL_VERSION, pid: 1, port, url: `http://127.0.0.1:${port}`, secret: "secret", version: ours, startedAt: 0 };
+		writeFileSync(join(state, "viewer.json"), JSON.stringify({ ...viewer, ...health }));
+		try {
+			const client = new DaemonClient();
+			const spawn = vi.spyOn(client as unknown as { spawn: () => Promise<typeof viewer> }, "spawn").mockResolvedValue(viewer);
+			expect(await client.ensure()).toEqual(viewer);
+			expect(shutdowns).toBe(1);
+			expect(spawn).toHaveBeenCalledOnce();
+			health = { protocol: PROTOCOL_VERSION + 1, version: bump(ours, 1) };
+			stopped = false;
+			await expect(new DaemonClient().ensure()).rejects.toThrow(/newer, incompatible/);
+			expect(shutdowns).toBe(1);
+		} finally {
+			delete process.env.PI_ARTIFACTS_STATE;
+			await new Promise<void>((done) => server.close(() => done()));
+			rmSync(state, { recursive: true, force: true });
+		}
+	});
+
 	it("uses daemons of the same protocol that are not older, never older or other protocols", () => {
 		expect(compatible({ protocol: PROTOCOL_VERSION, version: ours })).toBe(true);
 		expect(compatible({ protocol: PROTOCOL_VERSION, version: bump(ours, 1) })).toBe(true);

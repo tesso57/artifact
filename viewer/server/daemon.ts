@@ -84,9 +84,9 @@ async function stop(reason: string) {
 		const current = JSON.parse(readFileSync(statePath, "utf8")) as DaemonState;
 		if (current.pid === process.pid) rmSync(statePath, { force: true });
 	} catch {}
-	rmSync(lockFile, { force: true });
 	await server.close().catch(() => {});
 	ctx.memory.close();
+	rmSync(lockFile, { force: true });
 	process.exit(0);
 }
 ctx.onShutdown = () => void stop("api");

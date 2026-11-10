@@ -263,6 +263,9 @@ What is not (artifacts are code the agent wrote, running in your browser):
 - A live PID in `viewer.lock` is not automatically removed, even when the viewer is
   temporarily unresponsive. If a PID was reused after a crash or reboot, verify that it
   belongs to an unrelated process before removing the stale lock file.
+- `viewer.lock.gate.sqlite` coordinates stale-lock recovery between daemons that include
+  this change. Older versions do not use the gate, so simultaneous startup across versions
+  can still race when recovering a stale PID lock.
 
 ## Develop
 

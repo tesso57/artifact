@@ -1,5 +1,6 @@
 import { closeSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
 import { performance } from "node:perf_hooks";
+import { DatabaseSync } from "node:sqlite";
 
 function alive(pid: number): boolean {
 	try { process.kill(pid, 0); return true; }
@@ -8,13 +9,33 @@ function alive(pid: number): boolean {
 
 /** Exclusive lock so concurrent pi sessions never start two daemons. */
 export async function acquireLock(file: string): Promise<boolean> {
+	// Serialize PID-lock recovery across new daemons. SQLite releases its lock if a
+	// process dies, so recovery itself cannot leave a second stale lock behind.
+	const gate = new DatabaseSync(`${file}.gate.sqlite`);
+	try {
+		const deadline = performance.now() + 5000;
+		for (;;) {
+			try { gate.exec("BEGIN IMMEDIATE"); break; }
+			catch (error) {
+				if (((error as { errcode?: number }).errcode ?? 0) % 256 !== 5) throw error;
+				if (performance.now() >= deadline) return false;
+				await new Promise((resolve) => setTimeout(resolve, 25));
+			}
+		}
+		return await acquirePidLock(file);
+	} finally {
+		gate.close();
+	}
+}
+
+async function acquirePidLock(file: string): Promise<boolean> {
 	const emptyDeadline = performance.now() + 1000;
 	let staleAttempts = 0;
 	while (staleAttempts < 2) {
 		try {
 			const fd = openSync(file, "wx");
-			writeSync(fd, String(process.pid));
-			closeSync(fd);
+			try { writeSync(fd, String(process.pid)); }
+			finally { closeSync(fd); }
 			return true;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;

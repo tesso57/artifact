@@ -40,6 +40,11 @@ let failed = false;
 let first: Awaited<ReturnType<typeof startPi>> | undefined;
 let second: Awaited<ReturnType<typeof startPi>> | undefined;
 let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined;
+const navigationEvents: string[] = [];
+const recordNavigationEvent = (event: string) => {
+	navigationEvents.push(event);
+	if (navigationEvents.length > 50) navigationEvents.shift();
+};
 
 try {
 	first = await startPi();
@@ -58,6 +63,22 @@ try {
 	step("artifact_write created the artifact and started the viewer daemon");
 
 	const page = await browser.newPage({ viewport: { width: 1100, height: 650 }, deviceScaleFactor: 2 });
+	page.on("request", (request) => {
+		if (request.isNavigationRequest()) recordNavigationEvent(`request: ${new URL(request.url()).pathname}`);
+	});
+	page.on("requestfailed", (request) => {
+		if (request.isNavigationRequest()) recordNavigationEvent(`failed: ${new URL(request.url()).pathname} ${request.failure()?.errorText ?? "unknown"}`);
+	});
+	page.on("framenavigated", (frame) => {
+		if (frame === page.mainFrame()) {
+			try { recordNavigationEvent(`frame: ${new URL(frame.url()).pathname}`); }
+			catch { recordNavigationEvent("frame: non-URL navigation"); }
+		}
+	});
+	page.on("console", (message) => {
+		const text = message.text();
+		if (text.startsWith("[vite]")) recordNavigationEvent(`console: ${text.slice(0, 200)}`);
+	});
 	const pageErrors: string[] = [];
 	let lastPing = "none";
 	page.on("response", (response) => {
@@ -1576,6 +1597,7 @@ export default function ReplayDemo() {
 } catch (error) {
 	failed = true;
 	console.error("E2E FAILED:", error);
+	if (navigationEvents.length) console.error("Recent navigation events:\n" + navigationEvents.join("\n"));
 } finally {
 	await browser?.close().catch(() => {});
 	// Stop the daemon so the test leaves nothing running.

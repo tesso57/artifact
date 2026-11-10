@@ -7,7 +7,7 @@ import { nodeBinary, nodeTsFlags, runtimeNeedsPreserveSymlinks } from "../../../
 import { compatible, DaemonClient, runtimeRoot } from "../../../extension/daemon-client.ts";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { PROTOCOL_VERSION } from "../../../shared/protocol.ts";
+import { compareVersions, PROTOCOL_VERSION } from "../../../shared/protocol.ts";
 import { exportTarget, formatExport } from "../../../extension/tools/artifact-export.ts";
 import { formatWriteResult, registerArtifactWrite } from "../../../extension/tools/artifact-write.ts";
 import { openInBrowser, openerCommand } from "../../../extension/open.ts";
@@ -367,6 +367,12 @@ describe("DaemonClient", () => {
 describe("daemon compatibility", () => {
 	const ours = (JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")) as { version: string }).version;
 	const bump = (v: string, d: number) => v.split(".").map((n, i) => (i === 1 ? Math.max(0, Number(n) + d) : i === 2 ? 0 : Number(n))).join(".");
+
+	it("distinguishes the released 0.3 daemon from the updated runtime", () => {
+		expect(PROTOCOL_VERSION).not.toBe(1);
+		expect(compatible({ protocol: 1, version: "0.3.0" })).toBe(false);
+		expect(compareVersions(ours, "0.3.0")).toBeGreaterThan(0);
+	});
 
 	it("uses daemons of the same protocol that are not older, never older or other protocols", () => {
 		expect(compatible({ protocol: PROTOCOL_VERSION, version: ours })).toBe(true);

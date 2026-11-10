@@ -153,6 +153,7 @@ try {
 			await route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"unavailable"}' });
 		} else await route.continue();
 	});
+	recordNavigationEvent("stage: load artifact with injected failure");
 	await page.goto(originalArtifactUrl);
 	await page.getByText("Could not load the artifact").waitFor({ timeout: 10000 });
 	failArtifactLoad = false;
@@ -178,6 +179,7 @@ try {
 		await page.getByRole("link", { name: "All artifacts" }).click({ timeout: 5000 });
 		await page.getByRole("heading", { name: "pi artifacts" }).waitFor({ timeout: 10000 });
 	}
+	recordNavigationEvent("stage: return to artifact after missing routes");
 	await page.goto(originalArtifactUrl);
 	await page.getByText("★ 1234").waitFor({ timeout: 10000 });
 	step("artifact and template errors support retry and link back to the gallery");

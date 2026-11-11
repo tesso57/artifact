@@ -1,6 +1,25 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ArtifactsRuntime } from "../../../extension/runtime.ts";
+
+let previousState: string | undefined;
+let testState: string;
+
+beforeEach(() => {
+	previousState = process.env.PI_ARTIFACTS_STATE;
+	testState = mkdtempSync(join(tmpdir(), "pi-runtime-lifecycle-"));
+	process.env.PI_ARTIFACTS_STATE = testState;
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
+	if (previousState === undefined) delete process.env.PI_ARTIFACTS_STATE;
+	else process.env.PI_ARTIFACTS_STATE = previousState;
+	rmSync(testState, { recursive: true, force: true });
+});
 
 it("does not register after shutdown while checking for an existing viewer", async () => {
 	const runtime = new ArtifactsRuntime({ getAllTools: () => [] } as unknown as ExtensionAPI);

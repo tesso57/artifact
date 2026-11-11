@@ -9,6 +9,33 @@ import { acquireLock, releaseLock, removePidLock } from "../../../viewer/server/
 import { nodeTsFlags } from "../../../shared/node.ts";
 import { initializeDirectoryLock } from "../../../shared/daemon-lock.ts";
 
+it("reports filesystem errors during lock initialization without suggesting legacy lock removal", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-lock-disk-full-"));
+	const file = join(dir, "viewer.lock");
+	const module = pathToFileURL(resolve("viewer/server/daemon-lock.ts")).href;
+	const script = `
+		import fs from "node:fs";
+		import { syncBuiltinESMExports } from "node:module";
+		import { basename } from "node:path";
+		const write = fs.writeFileSync;
+		fs.writeFileSync = (path, ...args) => {
+			if (basename(String(path)) === "format") throw Object.assign(new Error("simulated disk full"), { code: "ENOSPC" });
+			return write(path, ...args);
+		};
+		syncBuiltinESMExports();
+		const { acquireLock } = await import(${JSON.stringify(module)});
+		try { await acquireLock(${JSON.stringify(file)}); process.exitCode = 1; }
+		catch (error) { console.log(JSON.stringify({ code: error.code, message: error.message })); }
+	`;
+	try {
+		const child = spawnSync(process.execPath, [...nodeTsFlags(), "--input-type=module", "-e", script], { encoding: "utf8" });
+		expect(child.status, child.stderr).toBe(0);
+		expect(JSON.parse(child.stdout)).toEqual({ code: "ENOSPC", message: "simulated disk full" });
+	} finally {
+		await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+	}
+});
+
 it("initializes automatically and retains the legacy barrier after shutdown", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-lock-init-"));
 	const file = join(dir, "viewer.lock");

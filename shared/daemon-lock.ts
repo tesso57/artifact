@@ -36,7 +36,7 @@ export function initializeDirectoryLock(file: string): void {
 	try { mkdirSync(file, { mode: 0o700 }); }
 	catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "EEXIST" && isInitializedLock(file)) return;
-		throw new Error(`Cannot initialize ${file}; stop all old pi sessions and viewers, inspect the old lock and remove it manually before retrying`, { cause: error });
+		throw error;
 	}
 	try { writeFileSync(join(file, "format"), MARKER, { flag: "wx", mode: 0o600 }); }
 	catch (error) { try { rmdirSync(file); } catch {} throw error; }

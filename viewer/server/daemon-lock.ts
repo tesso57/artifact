@@ -60,7 +60,8 @@ async function acquirePidLock(file: string): Promise<boolean> {
 		catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 				try { initializeDirectoryLock(file); } catch (initializationError) {
-					throw new StaleLegacyLockError(`Cannot initialize ${file}; stop all old pi sessions and viewers, inspect any old lock and remove it manually before restarting`, { cause: initializationError });
+					if ((initializationError as NodeJS.ErrnoException).code === "EEXIST") continue;
+					throw initializationError;
 				}
 				continue;
 			}

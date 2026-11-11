@@ -36,6 +36,36 @@ it("reports filesystem errors during lock initialization without suggesting lega
 	}
 });
 
+it("preserves a live legacy lock created during directory initialization", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-lock-init-race-"));
+	const file = join(dir, "viewer.lock");
+	const module = pathToFileURL(resolve("viewer/server/daemon-lock.ts")).href;
+	const script = `
+		import fs from "node:fs";
+		import { syncBuiltinESMExports } from "node:module";
+		const mkdir = fs.mkdirSync;
+		fs.mkdirSync = (path, ...args) => {
+			if (String(path) === ${JSON.stringify(file)}) {
+				fs.writeFileSync(path, String(process.ppid), { flag: "wx" });
+				throw Object.assign(new Error("already exists"), { code: "EEXIST" });
+			}
+			return mkdir(path, ...args);
+		};
+		syncBuiltinESMExports();
+		const { acquireLock } = await import(${JSON.stringify(module)});
+		console.log(JSON.stringify({ acquired: await acquireLock(${JSON.stringify(file)}), owner: process.ppid }));
+	`;
+	try {
+		const child = spawnSync(process.execPath, [...nodeTsFlags(), "--input-type=module", "-e", script], { encoding: "utf8" });
+		expect(child.status, child.stderr).toBe(0);
+		const result = JSON.parse(child.stdout) as { acquired: boolean; owner: number };
+		expect(result.acquired).toBe(false);
+		expect(await readFile(file, "utf8")).toBe(String(result.owner));
+	} finally {
+		await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+	}
+});
+
 it("initializes automatically and retains the legacy barrier after shutdown", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-lock-init-"));
 	const file = join(dir, "viewer.lock");

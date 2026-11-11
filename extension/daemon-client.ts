@@ -15,6 +15,7 @@ import { performance } from "node:perf_hooks";
 import { nodeBinary, nodeTsFlags, resolvePhysicalPath, runtimeNeedsPreserveSymlinks } from "../shared/node.ts";
 import { daemonStatePath, PACKAGE_ROOT, runtimeDir, stateDir } from "../shared/paths.ts";
 import { compareVersions, DAEMON_SECRET_HEADER, type DaemonState, PROTOCOL_VERSION } from "../shared/protocol.ts";
+import { LEGACY_LOCK_EXIT_CODE, readLockOwner } from "../shared/daemon-lock.ts";
 
 const PACKAGE_VERSION = (JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")) as { version: string }).version;
 
@@ -48,7 +49,7 @@ export function compatible(h: Health | undefined): boolean {
 
 function lockOwnerAlive(): boolean {
 	try {
-		const pid = Number(readFileSync(join(stateDir(), "viewer.lock"), "utf8"));
+		const pid = readLockOwner(join(stateDir(), "viewer.lock"));
 		if (!pid) return false;
 		process.kill(pid, 0);
 		return true;
@@ -270,6 +271,7 @@ export class DaemonClient {
 			const state = readState();
 			if (state && compatible(await healthy(state))) return state;
 			if (spawnError) throw new Error(`Could not start the artifact viewer with ${bin}: ${spawnError.message}`, { cause: spawnError });
+			if (child.exitCode === LEGACY_LOCK_EXIT_CODE) break;
 			// Our daemon may have exited because another session's daemon holds the lock and is
 			// still starting: keep waiting while that owner lives.
 			if (child.exitCode !== null && !lockOwnerAlive() && !readState()) break;

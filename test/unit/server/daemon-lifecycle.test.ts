@@ -56,10 +56,10 @@ it("leaves a replacement owner's PID lock intact during shutdown", async () => {
 		const deadline = Date.now() + 15_000;
 		while (!existsSync(stateFile) && daemon.exitCode === null && Date.now() < deadline) await delay(50);
 		if (!existsSync(stateFile)) throw new Error(`daemon did not start: ${output}`);
-		writeFileSync(lockFile, String(process.pid));
+		writeFileSync(join(lockFile, "pid"), String(process.pid));
 		daemon.kill("SIGTERM");
 		await Promise.race([exited, delay(6000).then(() => { throw new Error(`daemon did not exit: ${output}`); })]);
-		expect(readFileSync(lockFile, "utf8")).toBe(String(process.pid));
+		expect(readFileSync(join(lockFile, "pid"), "utf8")).toBe(String(process.pid));
 	} finally {
 		if (daemon.exitCode === null && daemon.signalCode === null) { daemon.kill("SIGTERM"); await exited; }
 		rmSync(dir, { recursive: true, force: true });

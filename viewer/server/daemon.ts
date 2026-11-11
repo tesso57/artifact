@@ -17,7 +17,8 @@ import { type DaemonState, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import { DaemonContext } from "./context.ts";
 import { VIEWER_DIR } from "./vite-shared.ts";
 import { RuntimeAliases } from "./runtime-aliases.ts";
-import { acquireLock, releaseLock } from "./daemon-lock.ts";
+import { acquireLock, releaseLock, removePidLock, StaleLegacyLockError } from "./daemon-lock.ts";
+import { LEGACY_LOCK_EXIT_CODE } from "../../shared/daemon-lock.ts";
 
 const foreground = process.argv.includes("--foreground");
 const idleMs = Number(process.env.PI_ARTIFACTS_IDLE_MS) || 15 * 60_000;
@@ -29,7 +30,11 @@ try {
 	chmodSync(stateDir(), 0o700);
 } catch {}
 const lockFile = join(stateDir(), "viewer.lock");
-if (!(await acquireLock(lockFile))) {
+const acquired = await acquireLock(lockFile).catch((error: unknown) => {
+	if (error instanceof StaleLegacyLockError) { console.error(error.message); process.exit(LEGACY_LOCK_EXIT_CODE); }
+	throw error;
+});
+if (!acquired) {
 	console.log("pi-artifacts viewer lock is held by another live process");
 	process.exit(0);
 }
@@ -86,9 +91,7 @@ async function stop(reason: string) {
 	} catch {}
 	await server.close().catch(() => {});
 	ctx.memory.close();
-	try {
-		if (readFileSync(lockFile, "utf8").trim() === String(process.pid)) rmSync(lockFile, { force: true });
-	} catch {}
+	try { removePidLock(lockFile); } catch {}
 	releaseLock(lockFile);
 	process.exit(0);
 }

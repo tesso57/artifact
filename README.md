@@ -260,19 +260,25 @@ What is not (artifacts are code the agent wrote, running in your browser):
   Replacement writes the new file before swapping it into place. If the destination is a
   symbolic link, the link itself is replaced and its target is left unchanged.
 - A newer extension version replaces an older running daemon.
-- A live PID in `viewer.lock` is not automatically removed, even when the viewer is
+- A live PID in `viewer.lock/pid` (or a legacy `viewer.lock` file) is not automatically removed, even when the viewer is
   temporarily unresponsive. If a PID was reused after a crash or reboot, verify that it
   belongs to an unrelated process before removing the stale lock file.
-- `viewer.lock.gate.sqlite` prevents more than one updated daemon from running, even if
-  the PID file is removed. Older versions do not use the gate, so simultaneous startup
-  across versions can still race when recovering a stale PID lock.
+- Updated daemons keep `viewer.lock` as a directory across stops. Together with
+  `viewer.lock.gate.sqlite`, it prevents an older daemon's file-only removal from deleting
+  the updated lock. Old daemons do not use the gate, so stop every old session before upgrading.
 
 Before updating from an older version, stop the viewer with `/artifacts stop`, then close
-all old pi sessions. Update the package and start pi only after they have exited. Version 0.4 uses viewer
-protocol 2; an older client cannot use the new viewer and must be updated. Do not remove
+all old pi sessions. Update the package and start pi only after they have exited. If a stale
+legacy `viewer.lock` file remains, the viewer asks for manual recovery: verify that no old
+session or viewer remains, then remove that file and retry. Version 0.4 uses viewer protocol 2;
+an older client cannot use the new viewer and must be updated. Do not remove
 `viewer.lock.gate.sqlite` or its SQLite journal while a viewer may be running: deleting
 the gate file can bypass its lock. If recovery is necessary, first stop all pi sessions
 and confirm that no viewer process remains.
+
+To return to an older version, first stop all pi sessions and viewers, then remove the
+`viewer.lock` directory. Older versions cannot use the new lock format and retain their
+original concurrent stale-lock recovery behavior.
 
 ## Develop
 

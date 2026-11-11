@@ -1,6 +1,10 @@
-import { closeSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
+import { lstatSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { initializeDirectoryLock, isInitializedLock, readLockOwner } from "../../shared/daemon-lock.ts";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
+
+export class StaleLegacyLockError extends Error {}
 
 const heldGates = new Map<string, DatabaseSync>();
 
@@ -11,7 +15,7 @@ function alive(pid: number): boolean {
 
 /** Exclusive lock so concurrent pi sessions never start two daemons. */
 export async function acquireLock(file: string): Promise<boolean> {
-	// Keep the gate until shutdown, even if an older daemon removes the PID file.
+	// Keep the gate until shutdown, even if the PID file inside the directory is removed.
 	// SQLite releases the lock automatically if this process dies.
 	const gate = new DatabaseSync(`${file}.gate.sqlite`);
 	let held = false;
@@ -22,8 +26,7 @@ export async function acquireLock(file: string): Promise<boolean> {
 			catch (error) {
 				if (((error as { errcode?: number }).errcode ?? 0) % 256 !== 5) throw error;
 				try {
-					const contents = readFileSync(file, "utf8").trim();
-					const owner = /^\d+$/.test(contents) ? Number(contents) : 0;
+					const owner = readLockOwner(file);
 					if (owner && alive(owner)) return false;
 				} catch (readError) {
 					if ((readError as NodeJS.ErrnoException).code !== "ENOENT") throw readError;
@@ -50,33 +53,47 @@ export function releaseLock(file: string): void {
 }
 
 async function acquirePidLock(file: string): Promise<boolean> {
-	const emptyDeadline = performance.now() + 1000;
-	let staleAttempts = 0;
-	while (staleAttempts < 2) {
-		try {
-			const fd = openSync(file, "wx");
-			try { writeSync(fd, String(process.pid)); }
-			finally { closeSync(fd); }
-			return true;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-			let contents: string;
-			try { contents = readFileSync(file, "utf8").trim(); }
-			catch (readError) {
-				if ((readError as NodeJS.ErrnoException).code === "ENOENT") continue;
-				throw readError;
+	const legacyDeadline = performance.now() + 1000;
+	for (;;) {
+		let info;
+		try { info = lstatSync(file); }
+		catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				try { initializeDirectoryLock(file); } catch (initializationError) {
+					throw new StaleLegacyLockError(`Cannot initialize ${file}; stop all old pi sessions and viewers, inspect any old lock and remove it manually before restarting`, { cause: initializationError });
+				}
+				continue;
 			}
-			const owner = /^\d+$/.test(contents) ? Number(contents) : 0;
-			// A new owner creates the file before it writes its PID. Give it time to finish.
-			if (!owner && performance.now() < emptyDeadline) {
+			throw error;
+		}
+		const owner = readLockOwner(file);
+		if (owner && alive(owner)) return false;
+		if (!info.isDirectory() || info.isSymbolicLink()) {
+			if (!owner && performance.now() < legacyDeadline) {
 				await new Promise((resolve) => setTimeout(resolve, 50));
 				continue;
 			}
-			// A busy live process may miss health checks; never steal its lock.
-			if (owner && alive(owner)) return false;
-			rmSync(file, { force: true });
-			staleAttempts++;
+			throw new StaleLegacyLockError(`Stale legacy lock at ${file}; stop all old pi sessions and viewers, verify the lock is stale and remove it manually before restarting`);
 		}
+		if (!isInitializedLock(file)) throw new StaleLegacyLockError(`Unrecognized lock directory at ${file}; stop all old pi sessions and viewers and inspect it before manual recovery`);
+		// Keep the initialized directory across crashes and shutdowns: legacy rm cannot delete it.
+		const entries = readdirSync(file);
+		if (entries.some((entry) => entry !== "pid" && entry !== "format")) throw new Error(`Unexpected files in lock directory ${file}`);
+		if (entries.includes("pid")) {
+			if (!lstatSync(join(file, "pid")).isFile()) throw new Error(`Invalid PID file in lock directory ${file}`);
+			unlinkSync(join(file, "pid"));
+		}
+		writeFileSync(join(file, "pid"), String(process.pid), { flag: "wx", mode: 0o600 });
+		return true;
 	}
-	return false;
+}
+
+/** Remove only our PID, keeping the initialized directory as a legacy barrier. */
+export function removePidLock(file: string): void {
+	try {
+		if (!isInitializedLock(file) || readLockOwner(file) !== process.pid) return;
+		unlinkSync(join(file, "pid"));
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	}
 }

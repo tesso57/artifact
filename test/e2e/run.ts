@@ -183,6 +183,21 @@ try {
 	await page.goto(originalArtifactUrl);
 	await page.getByText("★ 1234").waitFor({ timeout: 10000 });
 	step("artifact and template errors support retry and link back to the gallery");
+	if (process.env.E2E_NAVIGATION_STRESS === "1") {
+		for (let attempt = 0; attempt < 30; attempt++) {
+			const [path, message] = attempt % 2 === 0
+				? ["/a/does-not-exist", "Could not load the artifact"]
+				: ["/t/does-not-exist", "Could not load the template"];
+			await page.goto(new URL(path, originalArtifactUrl).href);
+			await page.getByText(message).waitFor({ timeout: 10000 });
+			await page.getByRole("link", { name: "All artifacts" }).click({ timeout: 5000 });
+			await page.getByRole("heading", { name: "pi artifacts" }).waitFor({ timeout: 10000 });
+			recordNavigationEvent(`stage: stress return to artifact ${attempt + 1}`);
+			await page.goto(originalArtifactUrl);
+			await page.getByText("★ 1234").waitFor({ timeout: 10000 });
+		}
+		step("repeated navigation after missing routes");
+	}
 
 	// A subagent can inspect an artifact, then give its parent a fresh one-use link.
 	const metaBeforeLink = readFileSync(join(dir, id, "meta.json"), "utf8");

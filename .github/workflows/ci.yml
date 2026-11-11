@@ -133,6 +133,7 @@ jobs:
         env:
           PI_ARTIFACTS_DIR: "${{ runner.temp }}/pi-artifacts-${{ matrix.path }}"
           TMPDIR: "${{ runner.temp }}/pi-install-${{ matrix.temp }}"
+          E2E_NAVIGATION_STRESS: "${{ matrix.temp == 'special #?%' && '1' || '0' }}"
       - name: Daemon log
         if: failure()
         run: find "${{ runner.temp }}/pi-artifacts-${{ matrix.path }}" -name viewer.log -exec cat {} + || true

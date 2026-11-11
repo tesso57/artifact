@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Minimal stdio MCP server for tests: tools `reverse` and `stats`.
+// Minimal stdio MCP server for tests.
 import { createInterface } from "node:readline";
 
 const tools = [
@@ -12,6 +12,18 @@ const tools = [
 	{
 		name: "stats",
 		description: "Return fake repository stats as JSON",
+		inputSchema: { type: "object", properties: {} },
+		annotations: { readOnlyHint: true, openWorldHint: false },
+	},
+	{
+		name: "scalar",
+		description: "Return JSON scalar text",
+		inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+		annotations: { readOnlyHint: true, openWorldHint: false },
+	},
+	{
+		name: "failure",
+		description: "Return an MCP tool error",
 		inputSchema: { type: "object", properties: {} },
 		annotations: { readOnlyHint: true, openWorldHint: false },
 	},
@@ -45,6 +57,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 			if (name === "reverse") {
 				return send({ id: req.id, result: { content: [{ type: "text", text: [...String(args.text)].reverse().join("") }] } });
 			}
+			if (name === "scalar") return send({ id: req.id, result: { content: [{ type: "text", text: String(args.text) }] } });
+			if (name === "failure") return send({ id: req.id, result: { isError: true, content: [{ type: "text", text: "deliberate MCP failure" }] } });
 			if (name === "note") {
 				return send({ id: req.id, result: { content: [{ type: "text", text: `noted: ${args.text}` }] } });
 			}

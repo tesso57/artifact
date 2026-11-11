@@ -10,7 +10,7 @@ export function errorMessage(error: unknown): string {
 }
 
 /** Destructive alert with an optional retry button. */
-export function ErrorState({ error, title = "Something went wrong", onRetry, className }: { error: unknown; title?: string; onRetry?: () => void; className?: string }) {
+export function ErrorState({ error, title = "Something went wrong", onRetry, onDismiss, className }: { error: unknown; title?: string; onRetry?: () => void; onDismiss?: () => void; className?: string }) {
 	return (
 		<Alert variant="destructive" className={className}>
 			<TriangleAlert />
@@ -21,6 +21,9 @@ export function ErrorState({ error, title = "Something went wrong", onRetry, cla
 					<Button variant="outline" size="sm" className="mt-2" onClick={onRetry}>
 						<RefreshCw /> Retry
 					</Button>
+				)}
+				{onDismiss && (
+					<Button variant="outline" size="sm" className="mt-2" onClick={onDismiss}>Dismiss</Button>
 				)}
 			</AlertDescription>
 		</Alert>
@@ -77,12 +80,16 @@ export function QueryState<T>({
 	if (query.isPending) return <>{loading ?? <LoadingState />}</>;
 	if (query.error) return <ErrorState error={query.error} title={errorTitle} onRetry={() => query.refetch()} />;
 	const data = query.data as T;
-	if (isEmpty(data)) return <>{empty ?? <EmptyState />}</>;
+	try {
+		if (isEmpty(data)) return <>{empty ?? <EmptyState />}</>;
+	} catch (error) {
+		return <ErrorState error={error} title={errorTitle} />;
+	}
 	return <>{children(data)}</>;
 }
 
 /** Inline error for a mutation (form submit, button action), or nothing. */
 export function MutationError({ mutation, title = "Action failed" }: { mutation: { error: unknown; reset: () => void }; title?: string }) {
 	if (!mutation.error) return null;
-	return <ErrorState error={mutation.error} title={title} onRetry={() => mutation.reset()} />;
+	return <ErrorState error={mutation.error} title={title} onDismiss={() => mutation.reset()} />;
 }

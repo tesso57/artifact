@@ -9,9 +9,18 @@ export const TEMPLATE_PREFIX = "template-";
 const RESERVED_IDS = new Set([SHARED_SCOPE]);
 const isReserved = (id: string) => RESERVED_IDS.has(id) || id.startsWith(TEMPLATE_PREFIX);
 
-/** Artifact ids, memory scopes and template names: lowercase slug, max 64 chars. */
+/** Artifact ids and template names: lowercase slug, max 64 chars. */
 export function isValidId(id: unknown): id is string {
 	return typeof id === "string" && ID_RE.test(id);
+}
+
+/** Runtime ids also include the prefix plus a full-length template name. */
+export function isValidRuntimeId(id: unknown): id is string {
+	return isValidId(id) || (typeof id === "string" && id.startsWith(TEMPLATE_PREFIX) && isValidId(id.slice(TEMPLATE_PREFIX.length)));
+}
+
+export function assertMemoryScope(scope: unknown): asserts scope is string {
+	if (!isValidRuntimeId(scope)) throw new Error(`Invalid memory scope ${JSON.stringify(scope)}`);
 }
 
 function assertValidId(id: unknown, what = "artifact id"): asserts id is string {
@@ -21,6 +30,13 @@ function assertValidId(id: unknown, what = "artifact id"): asserts id is string 
 export function assertArtifactId(id: unknown): asserts id is string {
 	assertValidId(id);
 	if (isReserved(id)) throw new Error(`"${id}" is reserved and cannot be an artifact id`);
+}
+
+/** Existing long keys remain readable and removable; new values use bounded keys. */
+export function assertMemoryKey(key: unknown, forWrite = false): asserts key is string {
+	if (typeof key !== "string" || !key || key === "*") throw new Error('Memory keys must be non-empty strings other than "*"');
+	if (forWrite && key.length > 512) throw new Error("Memory keys must be at most 512 characters when writing");
+	if (forWrite && /[\uD800-\uDFFF]/u.test(key)) throw new Error("Memory keys must contain valid Unicode when writing");
 }
 
 /** Turn a title into a URL-safe slug (never a reserved id). */

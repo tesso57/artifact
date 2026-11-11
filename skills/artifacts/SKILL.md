@@ -26,19 +26,24 @@ React 19, Tailwind CSS v4, shadcn/ui.
    outside that list fail. It returns an **Open** link and compile errors — and, when the
    user has the artifact open, runtime errors from the browser. Fix them by writing again
    with the same `id` (omitting `id` always creates a new artifact).
-6. **Hand over.** Give the Open link (it logs the browser in and expires after 30 minutes;
+6. **Hand over.** Give the one-use Open link (it logs a browser on the same machine in and expires after 30 minutes;
    `/artifacts` opens it again later) and say in one or two sentences what it does and
-   what it remembers. Offer `artifact_export` when they may want a single HTML file.
+   what it remembers. If working as a subagent, include the Open link in the final report
+   to the parent so it can be passed to the user. If it was used for preview or expired,
+   call `artifact_link` with the artifact id to get a fresh link without rewriting it.
+   For another machine, offer `artifact_export` for a single HTML file, and report the
+   memory and MCP results embedded in it before it is shared.
 
 ## Rules
 
 - **Diagrams are Mermaid, first.** Anything that shows structure or flow — architecture,
-  request/sequence flows, state machines, ER/data models, class diagrams, processes,
-  gantt/timelines, mindmaps — is drawn with `<Mermaid chart={...} />` or `<DiagramCard>`
+  request/sequence flows, state machines, ER/data models, class diagrams, processes and
+  mindmaps — is drawn with `<Mermaid chart={...} />` or `<DiagramCard>`
   from `@/components/blocks`. Never build diagrams from divs, absolutely positioned boxes,
   hand-written SVG or chart libraries. When the user asks to "explain", "show how … works"
   or "visualize the design", start from the `diagram` template. Charts (recharts in
-  `ChartCard`) are only for numbers.
+  `ChartCard`) are only for numbers. For task schedules with progress, use the
+  `GanttChart` block; Mermaid also supports diagram-oriented gantt charts and timelines.
 
 - Layout: `<Page>` → `<PageHeader>` → `<Section>`s; grids with `<Grid cols>`. Mobile first:
   everything must work at 375px wide.

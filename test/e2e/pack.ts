@@ -5,7 +5,7 @@
  *   node test/e2e/pack.ts
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,17 +14,19 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const work = mkdtempSync(join(tmpdir(), "pi-artifacts-pack-"));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
-const tarball = execFileSync(npm, ["pack", "--silent", "--pack-destination", work], { cwd: root, encoding: "utf8" }).trim().split("\n").pop()!;
-console.log(`packed ${tarball}`);
-writeFileSync(join(work, "package.json"), JSON.stringify({ name: "install-test", private: true }));
-// The same flags pi uses for package installs: no dev dependencies and, importantly, no peer
-// dependencies — every package the viewer needs must be a direct dependency.
-execFileSync(npm, ["install", "--omit=dev", "--legacy-peer-deps", "--no-audit", "--no-fund", join(work, tarball)], { cwd: work, stdio: "inherit" });
-const installed = join(work, "node_modules", "pi-artifacts");
-console.log(`installed at ${installed}`);
+try {
+	const tarball = execFileSync(npm, ["pack", "--silent", "--pack-destination", work], { cwd: root, encoding: "utf8" }).trim().split("\n").pop()!;
+	console.log(`packed ${tarball}`);
+	writeFileSync(join(work, "package.json"), JSON.stringify({ name: "install-test", private: true }));
+	execFileSync(npm, ["install", "--omit=dev", "--legacy-peer-deps", "--no-audit", "--no-fund", join(work, tarball)], { cwd: work, stdio: "inherit" });
+	const installed = join(work, "node_modules", "pi-artifacts");
+	console.log(`installed at ${installed}`);
 
-const run = spawnSync(process.execPath, [join(root, "test/e2e/run.ts")], {
-	stdio: "inherit",
-	env: { ...process.env, PI_ARTIFACTS_PACKAGE: installed, PI_ARTIFACTS_PORT: "5430" },
-});
-process.exit(run.status ?? 1);
+	const run = spawnSync(process.execPath, [join(root, "test/e2e/run.ts")], {
+		stdio: "inherit",
+		env: { ...process.env, PI_ARTIFACTS_PACKAGE: installed, PI_ARTIFACTS_PORT: "5430" },
+	});
+	process.exitCode = run.status ?? 1;
+} finally {
+	rmSync(work, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+}

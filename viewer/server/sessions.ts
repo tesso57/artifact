@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import type { SessionRegistration } from "../../shared/protocol.ts";
 
 /** A session is dropped when it has not sent a heartbeat for this long. */
@@ -7,15 +8,18 @@ export const SESSION_TTL_MS = 90_000;
 export class SessionRegistry {
 	private sessions = new Map<string, { reg: SessionRegistration; lastSeen: number; joined: number }>();
 	private readonly now: () => number;
+	private joinSequence = 0;
 
-	constructor(now: () => number = Date.now) {
+	constructor(now: () => number = () => performance.now()) {
 		this.now = now;
 	}
 
 	/** Register or heartbeat. */
 	upsert(reg: SessionRegistration): void {
+		const now = this.now();
 		const prev = this.sessions.get(reg.sessionId);
-		this.sessions.set(reg.sessionId, { reg, lastSeen: this.now(), joined: prev?.joined ?? this.now() });
+		const joined = prev && prev.lastSeen >= now - SESSION_TTL_MS ? prev.joined : ++this.joinSequence;
+		this.sessions.set(reg.sessionId, { reg, lastSeen: now, joined });
 	}
 
 	remove(sessionId: string): void {

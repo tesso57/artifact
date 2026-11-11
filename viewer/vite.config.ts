@@ -1,22 +1,14 @@
-import { existsSync, realpathSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { artifactsDir, BUNDLED_TEMPLATES_DIR, PACKAGE_ROOT, stateDir, userTemplatesDir } from "../shared/paths.ts";
+import { resolvePhysicalPath, runtimeNeedsPreserveSymlinks } from "../shared/node.ts";
 import { DaemonContext } from "./server/context.ts";
 import { piArtifactsPlugin } from "./server/plugin.ts";
-import { sharedResolve, VIEWER_DIR } from "./server/vite-shared.ts";
-
-/** The node_modules folders the viewer's dependencies really live in (no parent folders). */
-function dependencyDirs(): string[] {
-	const require = createRequire(import.meta.url);
-	const hoisted = dirname(dirname(realpathSync(require.resolve("vite/package.json"))));
-	const nested = join(PACKAGE_ROOT, "node_modules");
-	return [...new Set([hoisted, ...(existsSync(nested) ? [realpathSync(nested)] : [])])];
-}
+import { filesystemPolicy, sharedResolve, VIEWER_DIR } from "./server/vite-shared.ts";
 
 const ctx = (() => {
 	try {
@@ -26,19 +18,17 @@ const ctx = (() => {
 	}
 })();
 
+const cachePath = join(artifactsDir(), ".vite-cache", createHash("sha256").update(resolvePhysicalPath(stateDir())).digest("hex").slice(0, 20));
+
 export default defineConfig({
+	// Separate viewer instances must not rewrite each other's optimized dependencies.
+	cacheDir: ctx?.aliases.map(cachePath) ?? cachePath,
 	server: {
 		host: "127.0.0.1",
 		cors: false,
-		fs: {
-			strict: true,
-			// Exactly what the app needs: its own sources, its dependencies, artifacts and templates.
-			allow: [VIEWER_DIR, join(PACKAGE_ROOT, "shared"), ...dependencyDirs(), artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR],
-			// Never serve daemon state (SQLite, lock, secret) even though it sits under the artifacts dir.
-			deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", `${stateDir().replaceAll("\\", "/")}/**`, "**/*.sqlite*", "**/viewer.json"],
-		},
+		fs: filesystemPolicy(ctx?.aliases.paths),
 	},
-	resolve: sharedResolve(),
+	resolve: { ...sharedResolve(), preserveSymlinks: !!ctx?.aliases.paths.length || runtimeNeedsPreserveSymlinks(PACKAGE_ROOT) },
 	optimizeDeps: {
 		// Artifacts are not crawled at startup; pre-bundle what they may import so the
 		// first artifact load does not trigger a dependency re-optimization reload.

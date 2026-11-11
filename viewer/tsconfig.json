@@ -9,5 +9,5 @@
       "@pi/artifact": ["./src/sdk/index.ts"]
     }
   },
-  "include": ["src", "server", "vite.config.ts", "../shared"]
+  "include": ["src", "server", "vite.config.ts", "../shared", "../test/unit/components"]
 }

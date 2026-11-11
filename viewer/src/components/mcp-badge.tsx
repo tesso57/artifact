@@ -3,7 +3,13 @@ import { Badge } from "@/components/ui/badge";
 import { useMcpStatus } from "@pi/artifact";
 
 export function McpBadge() {
-	const { data } = useMcpStatus();
+	const { data, isPending, isError } = useMcpStatus();
+	if (isPending) {
+		return <Badge variant="outline" className="text-muted-foreground" title="Checking whether a pi session is connected"><Plug /> pi checking</Badge>;
+	}
+	if (isError) {
+		return <Badge variant="outline" title="Could not check the pi connection"><PlugZap className="text-amber-500" /> pi status unavailable</Badge>;
+	}
 	if (!data?.connected) {
 		return (
 			<Badge variant="outline" className="text-muted-foreground" title="No pi session is connected; MCP calls will fail">

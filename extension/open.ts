@@ -9,14 +9,17 @@ export function openerCommand(url: string, platform = process.platform): [string
 }
 
 /** Open a URL in the user's browser; returns false when no opener is available. */
-export function openInBrowser(url: string): boolean {
+export function openInBrowser(url: string): Promise<boolean> {
 	const [cmd, args] = openerCommand(url);
-	try {
-		const child = spawn(cmd, args, { stdio: "ignore", detached: true, windowsHide: true });
-		child.on("error", () => {});
-		child.unref();
-		return true;
-	} catch {
-		return false;
-	}
+	return new Promise((resolve) => {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const finish = (opened: boolean) => { clearTimeout(timer); resolve(opened); };
+		try {
+			const child = spawn(cmd, args, { stdio: "ignore", detached: true, windowsHide: true });
+			child.once("error", () => finish(false));
+			child.once("exit", (code) => finish(code === 0));
+			// Some openers wait for the browser to exit; do not block the Pi command on them.
+			child.once("spawn", () => { child.unref(); timer = setTimeout(() => finish(true), 750); });
+		} catch { finish(false); }
+	});
 }

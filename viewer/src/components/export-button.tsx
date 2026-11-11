@@ -13,14 +13,14 @@ function download(fileName: string, html: string) {
 
 function List({ label, items }: { label: string; items: string[] }) {
 	return (
-		<div className="space-y-1">
+		<div className="min-w-0 space-y-1">
 			<p className="text-sm font-medium">
 				{label} <span className="text-muted-foreground">({items.length})</span>
 			</p>
 			{items.length > 0 && (
-				<ul className="bg-muted max-h-32 overflow-auto rounded-md p-2 font-mono text-xs">
+				<ul aria-label={label} tabIndex={0} className="bg-muted focus-visible:ring-ring max-h-32 min-w-0 overflow-auto rounded-md p-2 font-mono text-xs focus-visible:ring-2 focus-visible:outline-none">
 					{items.map((i) => (
-						<li key={i} className="truncate">{i}</li>
+						<li key={i} className="break-all whitespace-pre-wrap">{i}</li>
 					))}
 				</ul>
 			)}
@@ -40,13 +40,14 @@ export function ExportButton({ id }: { id: string }) {
 				disabled={exp.isPending}
 				onClick={() => exp.mutate()}
 				title={exp.error ? String(exp.error) : "Export as a single HTML file"}
-				aria-label="Export as HTML"
+				aria-label={exp.isError ? "Retry export" : "Export as HTML"}
 			>
 				{exp.isPending ? <LoaderCircle className="animate-spin" /> : <Download />}
 				<span className="hidden md:inline">{exp.isError ? "Retry export" : "Export"}</span>
 			</Button>
+			{exp.isError && <p role="alert" className="text-destructive order-last w-full break-words text-sm">Export failed: {String(exp.error)}</p>}
 			<Dialog open={!!r} onOpenChange={(open) => !open && exp.reset()}>
-				<DialogContent>
+				<DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
 					<DialogHeader>
 						<DialogTitle>Export {r?.fileName}</DialogTitle>
 						<DialogDescription>
@@ -55,7 +56,7 @@ export function ExportButton({ id }: { id: string }) {
 						</DialogDescription>
 					</DialogHeader>
 					{r && (
-						<div className="grid gap-3">
+						<div className="grid min-w-0 gap-3">
 							<List label="Memory keys" items={r.embedded.memoryKeys} />
 							<List label="Shared memory keys" items={r.embedded.sharedKeys} />
 							<List label="MCP results" items={r.embedded.mcpCalls} />

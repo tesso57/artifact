@@ -6,3 +6,5 @@ export { McpQuery } from "./mcp-query";
 export { EmptyState, ErrorState, errorMessage, LoadingState, MutationError, QueryState } from "./query-state";
 export { Grid, Page, PageHeader, Section } from "./page";
 export { StatCard } from "./stat-card";
+export { GanttChart, type GanttTask } from "./gantt-chart";
+export { Markdown } from "./markdown";

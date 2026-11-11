@@ -7,11 +7,12 @@ import {
 	mcpListToolsFn,
 	mcpStatusFn,
 	memoryDeleteFn,
+	memoryCompareSetFn,
 	memoryGetFn,
 	memoryListFn,
 	memorySetFn,
 } from "@/server/fns";
-import type { McpCallResult, McpToolInfo } from "../../../shared/protocol.ts";
+import type { McpCallResult, McpToolInfo, MemorySnapshot } from "../../../shared/protocol.ts";
 
 export interface MemoryRow {
 	key: string;
@@ -25,11 +26,20 @@ export interface Backend {
 	/** `from`: the calling artifact, so reads of "shared" can be embedded in its exports. */
 	memoryGet(scope: string, key: string, from?: string): Promise<unknown>;
 	memorySet(scope: string, key: string, value: unknown): Promise<void>;
+	memoryCompareSet(scope: string, key: string, expected: MemorySnapshot, value: unknown): Promise<boolean>;
 	memoryDelete(scope: string, key: string): Promise<boolean>;
 	memoryList(scope: string, prefix?: string, from?: string): Promise<MemoryRow[]>;
 	mcpStatus(): Promise<{ connected: boolean; ready?: boolean }>;
 	mcpTools(): Promise<McpToolInfo[]>;
 	mcpCall(name: string, args: Record<string, unknown>, artifactId: string): Promise<McpCallResult>;
+}
+
+async function memoryWrite<T>(run: () => Promise<T>): Promise<T> {
+	try { return await run(); }
+	catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		throw new Error(`Memory write failed or its response was lost; it may have completed. Refresh before retrying. ${detail}`, { cause: error });
+	}
 }
 
 export const backend: Backend = {
@@ -39,9 +49,10 @@ export const backend: Backend = {
 		return r.found ? r.value : undefined;
 	},
 	memorySet: async (scope, key, value) => {
-		await memorySetFn({ data: { scope, key, value } });
+		await memoryWrite(() => memorySetFn({ data: { scope, key, value } }));
 	},
-	memoryDelete: async (scope, key) => (await memoryDeleteFn({ data: { scope, key } })).deleted,
+	memoryCompareSet: async (scope, key, expected, value) => (await memoryWrite(() => memoryCompareSetFn({ data: { scope, key, expected: expected as never, value: value as never } }))).updated,
+	memoryDelete: async (scope, key) => (await memoryWrite(() => memoryDeleteFn({ data: { scope, key } }))).deleted,
 	memoryList: (scope, prefix, from) => memoryListFn({ data: { scope, prefix, from } }),
 	mcpStatus: () => mcpStatusFn(),
 	mcpTools: () => mcpListToolsFn() as Promise<McpToolInfo[]>,

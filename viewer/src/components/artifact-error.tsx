@@ -1,8 +1,9 @@
 import { TriangleAlert } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
-export function ErrorPanel({ title, error }: { title: string; error: unknown }) {
+export function ErrorPanel({ title, error, onRetry }: { title: string; error: unknown; onRetry?: () => void }) {
 	const message = error instanceof Error ? error.message : String(error);
 	const stack = error instanceof Error ? error.stack : undefined;
 	return (
@@ -17,6 +18,7 @@ export function ErrorPanel({ title, error }: { title: string; error: unknown }) 
 						<pre className="overflow-x-auto font-mono text-[11px] whitespace-pre">{stack}</pre>
 					</details>
 				)}
+				{onRetry && <Button variant="outline" size="sm" onClick={onRetry}>Retry</Button>}
 			</AlertDescription>
 		</Alert>
 	);

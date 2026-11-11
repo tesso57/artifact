@@ -2,8 +2,13 @@ import { createContext, useContext } from "react";
 
 export interface ArtifactInfo {
 	id: string;
+	instanceId?: string;
+	/** Revision of the artifact source, used to refresh version-specific queries. */
+	updatedAt?: number;
 	title: string;
 	description?: string;
+	/** MCP tools allowed for this version of the artifact, when running in the viewer. */
+	mcp?: readonly string[];
 }
 
 export const ArtifactContext = createContext<ArtifactInfo | null>(null);

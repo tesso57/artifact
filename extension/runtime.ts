@@ -5,6 +5,7 @@ import { type Bridge, startBridge, type ToolRunner } from "./bridge.ts";
 import { DaemonClient } from "./daemon-client.ts";
 
 const HEARTBEAT_MS = 30_000;
+const REGISTRATION_TIMEOUT_MS = 5_000;
 
 /**
  * Per-session state: this session's MCP bridge and its registration with the shared viewer
@@ -19,6 +20,9 @@ export class ArtifactsRuntime {
 	private sessionId: string = randomUUID();
 	private heartbeat: ReturnType<typeof setInterval> | undefined;
 	private registered: Promise<void> | undefined;
+	private readonly registrationRequests = new Set<Promise<unknown>>();
+	private generation = 0;
+	private registrationAbort = new AbortController();
 	private mcpCalls = 0;
 
 	private readonly pi: ExtensionAPI;
@@ -70,12 +74,16 @@ export class ArtifactsRuntime {
 	}
 
 	private sendRegistration(start: boolean) {
-		return this.daemon.api("/sessions/register", this.registration(), { start });
+		const request = this.daemon.api("/sessions/register", this.registration(), { start, timeoutMs: REGISTRATION_TIMEOUT_MS, beforeSendSignal: this.registrationAbort.signal });
+		this.registrationRequests.add(request);
+		void request.then(() => this.registrationRequests.delete(request), () => this.registrationRequests.delete(request));
+		return request;
 	}
 
 	/** Register with a daemon that is already running; never starts one (cheap, for session start). */
 	async connectIfRunning(): Promise<void> {
-		if (await this.daemon.running()) await this.connect(false);
+		const generation = this.generation;
+		if (await this.daemon.running() && generation === this.generation) await this.connect(false);
 	}
 
 	/** Start the daemon if needed, start the bridge and register this session (idempotent). */
@@ -121,13 +129,23 @@ export class ArtifactsRuntime {
 	}
 
 	async shutdown(): Promise<void> {
+		this.generation++;
+		this.registrationAbort.abort();
 		clearInterval(this.heartbeat);
 		this.heartbeat = undefined;
-		if (this.registered) await this.daemon.api("/sessions/unregister", { sessionId: this.sessionId }, { start: false }).catch(() => {});
+		// A registration can finish after shutdown begins. Wait for it before removing
+		// the session, otherwise its late response can recreate a stale registration.
+		const registered = this.registered;
+		if (registered) await registered.catch(() => {});
+		clearInterval(this.heartbeat);
+		this.heartbeat = undefined;
+		await Promise.allSettled([...this.registrationRequests]);
+		if (registered) await this.daemon.api("/sessions/unregister", { sessionId: this.sessionId }, { start: false, timeoutMs: REGISTRATION_TIMEOUT_MS }).catch(() => {});
 		this.registered = undefined;
 		await this.bridge?.close();
 		this.bridge = undefined;
 		this.runner = undefined;
+		this.registrationAbort = new AbortController();
 		this.mcpCalls = 0;
 		this.updateStatus(true);
 	}

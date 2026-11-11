@@ -15,10 +15,12 @@ import { MEMORY_CHANGED_EVENT } from "@/lib/events";
 import { timeAgo } from "@/lib/format";
 import { useArtifactModule } from "@/lib/use-artifact-module";
 import { ArtifactContext, setCurrentArtifact } from "@/sdk/context";
+import { invalidateMemoryQueries } from "@/sdk/memory-sync";
 import { getCodeFn, pingFn, reportErrorFn } from "@/server/fns";
 
 interface ArtifactViewData {
 	id: string;
+	instanceId?: string;
 	title: string;
 	description?: string;
 	mcp: string[];
@@ -41,8 +43,7 @@ function useRuntimeFeedback(id: string) {
 		const hot = import.meta.hot;
 		if (!hot) return;
 		const onMemory = (data: { scope: string }) => {
-			void qc.invalidateQueries({ queryKey: ["pi-memory", data.scope] });
-			void qc.invalidateQueries({ queryKey: ["pi-memory-list", data.scope] });
+			invalidateMemoryQueries(qc, data.scope);
 		};
 		hot.on(MEMORY_CHANGED_EVENT, onMemory);
 		return () => hot.off(MEMORY_CHANGED_EVENT, onMemory);
@@ -80,9 +81,9 @@ export function ArtifactView({ data, kind = "artifact" }: { data: ArtifactViewDa
 	}, [loaded, data.id]);
 
 	return (
-		<ArtifactContext.Provider value={{ id: data.id, title: data.title, description: data.description }}>
+		<ArtifactContext.Provider value={{ id: data.id, instanceId: data.instanceId, updatedAt: data.updatedAt, title: data.title, description: data.description, mcp: data.mcp }}>
 			<Tabs value={tab} onValueChange={setTab} className="min-h-dvh gap-0">
-				<header className="bg-background/80 sticky top-0 z-40 flex items-center gap-2 border-b px-3 py-2 backdrop-blur">
+				<header className="bg-background/80 sticky top-0 z-40 flex flex-wrap items-center gap-2 border-b px-3 py-2 backdrop-blur">
 					<Button variant="ghost" size="icon" asChild>
 						<Link to="/" aria-label="All artifacts">
 							<ArrowLeft />
@@ -101,13 +102,13 @@ export function ArtifactView({ data, kind = "artifact" }: { data: ArtifactViewDa
 					)}
 					<TabsList className="ml-auto">
 						<TabsTrigger value="preview">
-							<Eye /> <span className="hidden sm:inline">Preview</span>
+							<Eye /> <span className="sr-only sm:not-sr-only">Preview</span>
 						</TabsTrigger>
 						<TabsTrigger value="code">
-							<Code2 /> <span className="hidden sm:inline">Code</span>
+							<Code2 /> <span className="sr-only sm:not-sr-only">Code</span>
 						</TabsTrigger>
 						<TabsTrigger value="memory">
-							<Database /> <span className="hidden sm:inline">Memory</span>
+							<Database /> <span className="sr-only sm:not-sr-only">Memory</span>
 						</TabsTrigger>
 					</TabsList>
 					{kind === "artifact" && <ExportButton id={data.id} />}
@@ -119,7 +120,7 @@ export function ArtifactView({ data, kind = "artifact" }: { data: ArtifactViewDa
 					{loaded.status === "loading" && <PreviewSkeleton />}
 					{loaded.status === "error" && <ErrorPanel title="The artifact failed to load" error={loaded.error} />}
 					{loaded.status === "ready" && (
-						<ArtifactErrorBoundary resetKey={data.updatedAt} onError={(e) => report(data.id, e)}>
+						<ArtifactErrorBoundary resetKey={loaded.revision} onError={(e) => report(data.id, e)}>
 							<Suspense fallback={<PreviewSkeleton />}>
 								<loaded.Component />
 							</Suspense>
@@ -138,14 +139,14 @@ export function ArtifactView({ data, kind = "artifact" }: { data: ArtifactViewDa
 }
 
 function CodeView({ moduleUrl, version }: { moduleUrl: string; version: number }) {
-	const { data, isPending, error } = useQuery({
+	const { data, isPending, error, refetch } = useQuery({
 		queryKey: ["artifact-code", moduleUrl, version],
 		queryFn: () => getCodeFn({ data: { moduleUrl } }),
 	});
 	if (isPending) return <Skeleton className="h-96 w-full" />;
-	if (error) return <ErrorPanel title="Could not read the source" error={error} />;
+	if (error) return <ErrorPanel title="Could not read the source" error={error} onRetry={() => void refetch()} />;
 	return (
-		<pre className="bg-muted overflow-x-auto rounded-lg border p-4 font-mono text-xs leading-relaxed">
+		<pre role="region" aria-label="Artifact source code" tabIndex={0} className="bg-muted focus-visible:ring-ring overflow-x-auto rounded-lg border p-4 font-mono text-xs leading-relaxed focus-visible:ring-2 focus-visible:outline-none">
 			<code>{data}</code>
 		</pre>
 	);

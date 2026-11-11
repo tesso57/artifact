@@ -29,7 +29,7 @@ export function registerArtifactTemplate(pi: ExtensionAPI, runtime: ArtifactsRun
 		name: "artifact_template",
 		label: "Artifact template",
 		description:
-			"List, read, save or delete artifact templates (reusable TSX starting points with use cases). save compile-checks the code and returns a preview link.",
+			"List, read, save or delete artifact templates (reusable TSX starting points with use cases). save compile-checks the code and returns a preview link. Deleting a user template also removes its preview memory and cached MCP results.",
 		promptSnippet: "List, read and save reusable artifact templates",
 		parameters: Type.Object({
 			action: StringEnum(["list", "get", "save", "delete"] as const),

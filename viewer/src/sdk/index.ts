@@ -10,10 +10,12 @@
  * servers connected to pi. An artifact may only call the tools in its `mcp` allowlist.
  */
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import { useCallback, useContext, useMemo, useRef } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { backend } from "@/sdk/backend";
-import { normalizeMcpToolName } from "../../../shared/protocol.ts";
+import { SHARED_SCOPE } from "../../../shared/ids.ts";
+import { normalizeMcpToolName, type MemorySnapshot } from "../../../shared/protocol.ts";
 import { ArtifactContext, currentArtifactId } from "./context";
+import { invalidateMemoryQueries, serializeMemoryWrite, subscribeMemoryChanges } from "./memory-sync";
 
 export { type ArtifactInfo, useArtifact } from "./context";
 export type { McpCallResult, McpToolInfo } from "../../../shared/protocol.ts";
@@ -34,23 +36,41 @@ function useScope(scope?: string): string {
 	return resolved;
 }
 
-const memoryKey = (scope: string, key: string) => ["pi-memory", scope, key] as const;
+const memoryKey = (scope: string, key: string, caller?: string) => ["pi-memory", scope, key, scope === SHARED_SCOPE ? caller : undefined] as const;
+type MemoryCache<T> = { found: false } | { found: true; value: T };
+type MemoryWrite<T> = { scope: string; key: string; caller?: string; initial: T; value: T | undefined; expected: MemorySnapshot; update?: (previous: T) => T | undefined };
 
-/** Writes to one key are sent in order, so the last `set` always wins. */
-const writeChains = new Map<string, Promise<unknown>>();
-function serialized<T>(chainKey: string, run: () => Promise<T>): Promise<T> {
-	const next = (writeChains.get(chainKey) ?? Promise.resolve()).catch(() => {}).then(run);
-	writeChains.set(chainKey, next);
-	void next.finally(() => writeChains.get(chainKey) === next && writeChains.delete(chainKey)).catch(() => {});
-	return next;
+function jsonMemoryValue<T>(value: T | undefined): T | undefined {
+	if (value === undefined) return undefined;
+	try {
+		const json = JSON.stringify(value);
+		if (json === undefined) throw new Error("Value has no JSON representation");
+		return JSON.parse(json) as T;
+	} catch (error) {
+		throw new Error("Memory values must be JSON serializable", { cause: error });
+	}
+}
+function useMemoryUpdates(scope: string) {
+	const qc = useQueryClient();
+	useEffect(() => subscribeMemoryChanges((changed) => {
+		if (changed === scope) invalidateMemoryQueries(qc, scope);
+	}), [qc, scope]);
 }
 
 /** Imperative memory API. `scope` is required outside of hooks. */
 export const memory = {
 	get: <T>(scope: string, key: string) => backend.memoryGet(scope, key, currentArtifactId()) as Promise<T | undefined>,
-	set: (scope: string, key: string, value: unknown) =>
-		serialized(`${scope}\u0000${key}`, () => backend.memorySet(scope, key, value)),
-	delete: (scope: string, key: string) => serialized(`${scope}\u0000${key}`, () => backend.memoryDelete(scope, key)),
+	set: (scope: string, key: string, value: unknown) => {
+		let snapshot: unknown;
+		try {
+			snapshot = jsonMemoryValue(value);
+		} catch (error) {
+			return Promise.reject(error);
+		}
+		return serializeMemoryWrite(scope, key, () => backend.memorySet(scope, key, snapshot));
+	},
+	delete: (scope: string, key: string) =>
+		serializeMemoryWrite(scope, key, () => backend.memoryDelete(scope, key)),
 	list: (scope: string, prefix?: string) => backend.memoryList(scope, prefix, currentArtifactId()),
 };
 
@@ -66,46 +86,94 @@ export function useMemory<T>(
 	key: string,
 	initial: T,
 	options: MemoryOptions = {},
-): [T, (next: T | ((prev: T) => T)) => void, { loading: boolean; error: unknown }] {
+): [T, (next: T | undefined | ((prev: T) => T | undefined)) => void, { loading: boolean; error: unknown }] {
 	const scope = useScope(options.scope);
+	const caller = useContext(ArtifactContext)?.id;
+	useMemoryUpdates(scope);
 	const qc = useQueryClient();
-	const queryKey = useMemo(() => memoryKey(scope, key), [scope, key]);
+	const queryKey = useMemo(() => memoryKey(scope, key, caller), [scope, key, caller]);
+	const [writeErrors, setWriteErrors] = useState<Map<string, unknown>>(() => new Map());
 	// `initial` is only a default; keep the latest without re-creating callbacks on every render.
 	const initialRef = useRef(initial);
 	initialRef.current = initial;
+	const readValue = useCallback(async () => {
+		const value = await backend.memoryGet(scope, key, caller) as T | undefined;
+		return value === undefined ? { found: false as const } : { found: true as const, value };
+	}, [scope, key, caller]);
 	const query = useQuery({
 		queryKey,
-		queryFn: async () => {
-			const value = await memory.get<T>(scope, key);
-			return value === undefined ? initialRef.current : value;
-		},
+		queryFn: readValue,
 	});
-	const { mutate, error: mutationError } = useMutation({
-		mutationFn: (value: T) => memory.set(scope, key, value),
-		onError: () => qc.invalidateQueries({ queryKey }),
+	const { mutate } = useMutation({
+		mutationFn: ({ scope: targetScope, key: targetKey, caller: targetCaller, initial: actionInitial, value, expected, update }: MemoryWrite<T>) => {
+			if (!update) return memory.set(targetScope, targetKey, value);
+			return serializeMemoryWrite(targetScope, targetKey, async () => {
+				let candidate = expected;
+				let nextValue = value;
+				for (let attempt = 0; attempt < 16; attempt++) {
+					if (await backend.memoryCompareSet(targetScope, targetKey, candidate, nextValue)) return;
+					const latest = await backend.memoryGet(targetScope, targetKey, targetCaller) as T | undefined;
+					candidate = latest === undefined ? { found: false } : { found: true, value: JSON.parse(JSON.stringify(latest)) };
+					nextValue = jsonMemoryValue(update(latest === undefined ? actionInitial : latest));
+				}
+				throw new Error("Memory update conflicted repeatedly; retry the action");
+			});
+		},
+		onError: (error, operation) => {
+			setWriteErrors((previous) => new Map(previous).set(`${operation.scope}\u0000${operation.key}`, error));
+			invalidateMemoryQueries(qc, operation.scope);
+		},
 	});
 	const set = useCallback(
-		(next: T | ((prev: T) => T)) => {
-			const cached = qc.getQueryData<T>(queryKey);
-			const prev = cached === undefined ? initialRef.current : cached;
-			const value = typeof next === "function" ? (next as (p: T) => T)(prev) : next;
-			// A read still in flight (e.g. a focus refetch) must not undo this write.
-			void qc.cancelQueries({ queryKey });
-			// Setting undefined deletes the key; the hook then shows `initial` again.
-			qc.setQueryData(queryKey, value === undefined ? initialRef.current : value);
-			mutate(value);
+		(next: T | undefined | ((prev: T) => T | undefined)) => {
+			setWriteErrors((previous) => {
+				const id = `${scope}\u0000${key}`;
+				if (!previous.has(id)) return previous;
+				const nextErrors = new Map(previous);
+				nextErrors.delete(id);
+				return nextErrors;
+			});
+			const apply = () => {
+				const cached = qc.getQueryData<MemoryCache<T>>(queryKey);
+				let expected: MemorySnapshot;
+				try { expected = cached?.found ? { found: true, value: jsonMemoryValue(cached.value) } : { found: false }; }
+				catch (error) { setWriteErrors((previous) => new Map(previous).set(`${scope}\u0000${key}`, error)); return; }
+				const update = typeof next === "function" ? next as (p: T) => T | undefined : undefined;
+				let value: T | undefined;
+				// An updater must not be able to mutate either the cached value or the
+				// compare-and-set snapshot before its result has been validated.
+				try {
+					const prev = update && expected.found ? jsonMemoryValue(expected.value) as T : initialRef.current;
+					value = jsonMemoryValue(update ? update(prev) : next as T | undefined);
+				}
+				catch (error) { setWriteErrors((previous) => new Map(previous).set(`${scope}\u0000${key}`, error)); return; }
+				// A read still in flight (e.g. a focus refetch) must not undo this write.
+				void qc.cancelQueries({ queryKey });
+				// Setting undefined deletes the key; the hook then shows `initial` again.
+				const nextCache: MemoryCache<T> = value === undefined ? { found: false } : { found: true, value };
+				qc.setQueryData<MemoryCache<T>>(queryKey, () => nextCache);
+				mutate({ scope, key, caller, initial: initialRef.current, value, expected, update });
+			};
+			if (typeof next === "function" && qc.getQueryData(queryKey) === undefined && qc.getQueryState(queryKey)?.status !== "success") {
+				// A functional update needs the persisted value, not the temporary initial value.
+				void qc.fetchQuery({ queryKey, queryFn: readValue }).then(apply, () => {});
+				return;
+			}
+			apply();
 		},
-		[qc, queryKey, mutate],
+		[qc, queryKey, mutate, readValue, scope, key, caller],
 	);
-	return [(query.data === undefined ? initial : query.data) as T, set, { loading: query.isPending, error: query.error ?? mutationError }];
+	return [(query.data?.found ? query.data.value : initial) as T, set, { loading: query.isPending, error: query.error ?? writeErrors.get(`${scope}\u0000${key}`) }];
 }
 
 /** Every entry of a scope (optionally under a key prefix). */
 export function useMemoryList(options: MemoryOptions & { prefix?: string } = {}) {
 	const scope = useScope(options.scope);
+	const caller = useContext(ArtifactContext)?.id;
+	useMemoryUpdates(scope);
 	return useQuery({
-		queryKey: ["pi-memory-list", scope, options.prefix ?? ""],
-		queryFn: () => memory.list(scope, options.prefix),
+		queryKey: ["pi-memory-list", scope, options.prefix ?? "", scope === SHARED_SCOPE ? caller : undefined],
+		queryFn: () => backend.memoryList(scope, options.prefix, caller),
 	});
 }
 
@@ -118,12 +186,16 @@ export function useMemoryList(options: MemoryOptions & { prefix?: string } = {})
  * `"github.search_issues"`, or `("github", "search_issues")`.
  * Throws when the tool reports an error.
  */
-export async function callMcp<T = unknown>(name: string, args: Record<string, unknown> = {}) {
-	const artifactId = currentArtifactId();
-	if (!artifactId) throw new Error("callMcp() must be used inside an artifact");
+async function callMcpFor<T>(artifactId: string, name: string, args: Record<string, unknown>) {
 	const result = await backend.mcpCall(normalizeMcpToolName(name), args, artifactId);
 	if (result.isError) throw new Error(result.text || `MCP tool ${name} failed`);
 	return { ...result, data: result.data as T };
+}
+
+export async function callMcp<T = unknown>(name: string, args: Record<string, unknown> = {}) {
+	const artifactId = currentArtifactId();
+	if (!artifactId) throw new Error("callMcp() must be used inside an artifact");
+	return callMcpFor<T>(artifactId, name, args);
 }
 
 /** Whether a pi session is connected to the viewer (MCP calls need one). */
@@ -146,15 +218,25 @@ export function useMcp<T = unknown>(
 	args: Record<string, unknown> = {},
 	options: Omit<UseQueryOptions<{ text: string; data: T }>, "queryKey" | "queryFn"> = {},
 ) {
+	const artifact = useContext(ArtifactContext);
+	if (!artifact) throw new Error("useMcp() must be used inside an artifact");
 	return useQuery({
-		queryKey: ["pi-mcp", normalizeMcpToolName(name), args],
-		queryFn: () => callMcp<T>(name, args),
+		queryKey: ["pi-mcp", artifact.id, artifact.instanceId ?? null, artifact.updatedAt ?? null, artifact.mcp ?? [], normalizeMcpToolName(name), args],
+		queryFn: () => callMcpFor<T>(artifact.id, name, args),
 		staleTime: 60_000,
+		// An error can occur after the tool acted, so automatic repeats are unsafe by default.
+		retry: false,
+		retryOnMount: false,
+		refetchOnMount: false,
+		refetchOnWindowFocus: false,
+		refetchOnReconnect: false,
 		...options,
 	});
 }
 
 /** Run an MCP tool on demand (buttons, forms). */
 export function useMcpMutation<T = unknown>(name: string) {
-	return useMutation({ mutationFn: (args: Record<string, unknown> = {}) => callMcp<T>(name, args) });
+	const artifact = useContext(ArtifactContext);
+	if (!artifact) throw new Error("useMcpMutation() must be used inside an artifact");
+	return useMutation({ mutationFn: (args: Record<string, unknown> = {}) => callMcpFor<T>(artifact.id, name, args) });
 }

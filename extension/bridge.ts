@@ -9,6 +9,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { performance } from "node:perf_hooks";
 import {
 	BRIDGE_TOKEN_HEADER,
 	type BridgeCallRequest,
@@ -73,23 +74,45 @@ function textOf(content: unknown[] | undefined): string {
  * as their `structuredContent`. Use the server's own `structuredContent` when it sent one, else
  * JSON-looking text.
  */
+function checkedJsonNumber(value: unknown): unknown {
+	if (typeof value === "number" && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) {
+		throw new Error("JSON number cannot be represented safely");
+	}
+	return value;
+}
+
+function safeJsonValue(value: unknown): unknown {
+	try {
+		const json = JSON.stringify(value, (_key, item: unknown) => checkedJsonNumber(item));
+		return json === undefined ? undefined : JSON.parse(json);
+	} catch {
+		return undefined;
+	}
+}
+
 function parseData(text: string, structured: unknown): unknown {
 	if (structured && typeof structured === "object" && Array.isArray((structured as { content?: unknown }).content)) {
 		const inner = (structured as { structuredContent?: unknown }).structuredContent;
-		if (inner !== undefined) return inner;
+		if (inner !== undefined) return safeJsonValue(inner);
 	} else if (structured !== undefined) {
-		return structured;
+		return safeJsonValue(structured);
 	}
 	const trimmed = text.trim();
-	if (!/^[[{]/.test(trimmed)) return undefined;
 	try {
-		return JSON.parse(trimmed);
+		// Node 22.19+ exposes the original primitive token to the reviver. It lets us
+		// distinguish a real zero from a nonzero exponent rounded down to zero.
+		const parse = JSON.parse as unknown as (text: string, reviver: (key: string, value: unknown, context?: { source?: string }) => unknown) => unknown;
+		return parse(trimmed, (_key, value, context) => {
+			if (value === 0 && context?.source && /[1-9]/.test(context.source.split(/[eE]/, 1)[0])) throw new Error("JSON number underflows");
+			return checkedJsonNumber(value);
+		});
 	} catch {
 		return undefined;
 	}
 }
 
 function send(res: ServerResponse, status: number, body: unknown) {
+	if (res.destroyed) return;
 	res.writeHead(status, { "content-type": "application/json" });
 	res.end(JSON.stringify(body));
 }
@@ -112,9 +135,32 @@ function tokenMatches(given: string | string[] | undefined, expected: string): b
 	return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function createBridgeHandler(token: string, opts: BridgeOptions) {
+async function waitForTool<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+	let abort!: () => void;
+	const cancelled = new Promise<never>((_resolve, reject) => {
+		abort = () => reject(signal.reason);
+		if (signal.aborted) abort();
+		else signal.addEventListener("abort", abort, { once: true });
+	});
+	try { return await Promise.race([operation, cancelled]); }
+	finally { signal.removeEventListener("abort", abort); }
+}
+
+function createBridgeHandler(token: string, opts: BridgeOptions, shutdownSignal: AbortSignal) {
 	/** Tools the user approved for artifacts in this session. */
 	const approved = new Set<string>();
+	const pendingApprovals = new Map<string, Promise<boolean>>();
+
+	function requestApproval(call: BridgeCallRequest): Promise<boolean> {
+		if (!opts.confirm) return Promise.resolve(false);
+		const existing = pendingApprovals.get(call.name);
+		if (existing) return existing;
+		const pending = Promise.resolve().then(() => opts.confirm!(call));
+		pendingApprovals.set(call.name, pending);
+		const clear = () => { if (pendingApprovals.get(call.name) === pending) pendingApprovals.delete(call.name); };
+		void pending.then(clear, clear);
+		return pending;
+	}
 
 	return async (req: IncomingMessage, res: ServerResponse) => {
 		try {
@@ -128,6 +174,7 @@ function createBridgeHandler(token: string, opts: BridgeOptions) {
 
 			if (req.method === "POST" && url.pathname === "/mcp/call") {
 				const body = (await readJson(req)) as Partial<BridgeCallRequest>;
+				if (shutdownSignal.aborted) return;
 				const call: BridgeCallRequest = {
 					name: typeof body.name === "string" ? body.name : "",
 					args: body.args && typeof body.args === "object" ? body.args : {},
@@ -144,19 +191,29 @@ function createBridgeHandler(token: string, opts: BridgeOptions) {
 					});
 				}
 				// MCP servers connect in the background; give a server that is still connecting a moment.
-				const deadline = Date.now() + (opts.connectWaitMs ?? 15_000);
-				while (!runner.tools.some((t) => t.name === call.name) && Date.now() < deadline) {
+				const deadline = performance.now() + (opts.connectWaitMs ?? 15_000);
+				while (!shutdownSignal.aborted && !runner.tools.some((t) => t.name === call.name) && performance.now() < deadline) {
 					await new Promise((r) => setTimeout(r, 200));
 				}
+				if (shutdownSignal.aborted) return;
 				if (!runner.tools.some((t) => t.name === call.name)) {
 					return send(res, 404, { error: `MCP tool "${call.name}" is not available in pi (is its server connected? see /mcp)` });
 				}
 				if (!runsWithoutApproval(opts.listAllTools().find((t) => t.name === call.name)) && !approved.has(call.name)) {
-					if (!opts.confirm || !(await opts.confirm(call))) return send(res, 403, { error: `The user declined ${call.name} for artifacts` });
+					if (!(await requestApproval(call))) return send(res, 403, { error: `The user declined ${call.name} for artifacts` });
+					if (shutdownSignal.aborted) return;
 					approved.add(call.name);
 				}
 				opts.onCall?.(call);
-				const outcome = await runner.executeTool(call.name, call.args, { signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000) });
+				const timeout = AbortSignal.timeout(opts.timeoutMs ?? 120_000);
+				const signal = AbortSignal.any([shutdownSignal, timeout]);
+				let outcome: Awaited<ReturnType<ToolRunner["executeTool"]>>;
+				try {
+					outcome = await waitForTool(runner.executeTool(call.name, call.args, { signal }), signal);
+				} catch (error) {
+					if (timeout.aborted && !shutdownSignal.aborted) return send(res, 504, { error: `MCP tool ${call.name} timed out; it may still be running` });
+					throw error;
+				}
 				const text = textOf(outcome.result.content);
 				const result: McpCallResult = { isError: outcome.isError, text, data: parseData(text, outcome.result.structuredContent) };
 				return send(res, 200, result);
@@ -178,15 +235,21 @@ export interface Bridge {
 /** Start the bridge on a random loopback port. */
 export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
 	const token = randomBytes(24).toString("base64url");
-	const server: Server = createServer(createBridgeHandler(token, opts));
+	const shutdown = new AbortController();
+	const server: Server = createServer(createBridgeHandler(token, opts, shutdown.signal));
 	await new Promise<void>((resolve, reject) => {
 		server.once("error", reject);
 		server.listen(0, "127.0.0.1", () => resolve());
 	});
 	const { port } = server.address() as AddressInfo;
+	let closing: Promise<void> | undefined;
 	return {
 		url: `http://127.0.0.1:${port}`,
 		token,
-		close: () => new Promise((resolve) => server.close(() => resolve())),
+		close: () => (closing ??= new Promise((resolve) => {
+			shutdown.abort();
+			server.close(() => resolve());
+			server.closeAllConnections();
+		})),
 	};
 }

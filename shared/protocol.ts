@@ -28,7 +28,7 @@ export interface McpCallResult {
 export type MemorySnapshot = { found: false } | { found: true; value: unknown };
 
 export const BRIDGE_TOKEN_HEADER = "x-pi-artifacts-token";
-/** Bumped when the daemon API changes incompatibly; clients only use daemons with the same one. */
+/** Clients require the same protocol. Version 2 requires the presence-aware memory API. */
 export const PROTOCOL_VERSION = 2;
 export const DAEMON_SECRET_HEADER = "x-pi-artifacts-secret";
 export const SESSION_COOKIE = "pi_artifacts";

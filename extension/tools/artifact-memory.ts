@@ -28,15 +28,7 @@ export function registerArtifactMemory(pi: ExtensionAPI, runtime: ArtifactsRunti
 				out = await runtime.daemon.api("/memory", { ...params, value: JSON.parse(json) });
 			} else if (params.action === "get") {
 				assertMemoryKey(params.key);
-				let result: { found: boolean; value?: unknown };
-				try {
-					result = await runtime.daemon.api("/memory", { ...params, action: "get-with-presence" });
-				} catch (error) {
-					if (!(error instanceof Error) || !error.message.includes('Unknown memory action "get-with-presence"')) throw error;
-					const entries = await runtime.daemon.api<{ key: string; value: unknown }[]>("/memory", { action: "list", scope: params.scope });
-					const entry = entries.find((item) => item.key === params.key);
-					result = entry ? { found: true, value: entry.value } : { found: false };
-				}
+				const result = await runtime.daemon.api<{ found: boolean; value?: unknown }>("/memory", { ...params, action: "get-with-presence" });
 				if (!result.found) return { content: [{ type: "text", text: `No value found for key ${JSON.stringify(params.key)}.` }], details: undefined };
 				out = result.value;
 			} else out = await runtime.daemon.api("/memory", params);

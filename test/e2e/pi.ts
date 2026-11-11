@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 /** The package under test: this checkout, or an installed copy (PI_ARTIFACTS_PACKAGE). */
 export const PACKAGE = process.env.PI_ARTIFACTS_PACKAGE ?? resolve(here, "../..");
 
-export interface TestSession {
+interface TestSession {
 	session: Awaited<ReturnType<typeof createAgentSession>>["session"];
 	cwd: string;
 	respond(steps: FauxResponseStep[]): void;

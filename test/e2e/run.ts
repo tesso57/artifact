@@ -381,10 +381,11 @@ try {
 	symlinkSync(join(relativeSecretDir, "secret.txt"), join(relativeDir, "leak.txt"), "file");
 	writeFileSync(join(relativeDir, "helper.ts"), 'export const label = "first";');
 	writeFileSync(join(relativeDir, "info.json"), '{"number":42}');
+	writeFileSync(join(relativeDir, "notes.md"), "# Local Markdown\n\nSnapshot content.");
 	writeFileSync(join(relativeDir, "more.css"), ".relative-test { color: rgb(1, 2, 3); }");
 	writeFileSync(join(relativeDir, "style.css"), '@import "./more.css"; .relative-test { font-size: 31px; background-image: url("./icon.svg"); }');
 	writeFileSync(join(relativeDir, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"></svg>');
-	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "relative-demo", title: "Relative demo", code: 'import { label } from "./helper"; import info from "./info.json"; import "./style.css"; import icon from "./icon.svg"; export default function RelativeDemo() { return <><p className="relative-test">{label} {info.number}</p><img alt="icon" src={icon} /></>; }' })), fauxAssistantMessage("ok")]);
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "relative-demo", title: "Relative demo", code: 'import { label } from "./helper"; import info from "./info.json"; import notes from "./notes.md?raw"; import { Markdown } from "@/components/blocks"; import "./style.css"; import icon from "./icon.svg"; export default function RelativeDemo() { return <><p className="relative-test">{label} {info.number}</p><Markdown>{notes}</Markdown><img alt="icon" src={icon} /></>; }' })), fauxAssistantMessage("ok")]);
 	await first.prompt("Create an artifact with relative files");
 	const relativeWrite = first.lastResult("artifact_write");
 	if (relativeWrite.isError) throw new Error(`relative import failed: ${relativeWrite.text}`);
@@ -392,6 +393,7 @@ try {
 	await relativePage.goto(openLink(relativeWrite.text), { waitUntil: "networkidle" });
 	const relativeText = relativePage.getByText("first 42", { exact: true });
 	await relativeText.waitFor({ timeout: 10000 });
+	await relativePage.getByRole("heading", { name: "Local Markdown" }).waitFor({ timeout: 10000 });
 	const relativeStyle = await relativeText.evaluate((element) => ({ size: getComputedStyle(element).fontSize, color: getComputedStyle(element).color, background: getComputedStyle(element).backgroundImage }));
 	if (relativeStyle.size !== "31px" || relativeStyle.color !== "rgb(1, 2, 3)" || !relativeStyle.background.includes("image/svg+xml")) throw new Error(`relative CSS did not load: ${JSON.stringify(relativeStyle)}`);
 	await relativePage.waitForFunction(() => (document.querySelector('img[alt="icon"]') as HTMLImageElement | null)?.naturalWidth === 4, undefined, { timeout: 10000 });
@@ -412,13 +414,14 @@ try {
 	await relativeOffline.goto(pathToFileURL(join(first.cwd, "relative-demo.html")).href);
 	const relativeOfflineText = relativeOffline.getByText("second 42", { exact: true });
 	await relativeOfflineText.waitFor({ timeout: 10000 });
+	await relativeOffline.getByRole("heading", { name: "Local Markdown" }).waitFor({ timeout: 10000 });
 	const offlineStyle = await relativeOfflineText.evaluate((element) => ({ size: getComputedStyle(element).fontSize, color: getComputedStyle(element).color, background: getComputedStyle(element).backgroundImage }));
 	if (offlineStyle.size !== "31px" || offlineStyle.color !== "rgb(1, 2, 3)" || !offlineStyle.background.includes("image/svg+xml")) throw new Error(`offline relative CSS did not load: ${JSON.stringify(offlineStyle)}`);
 	await relativeOffline.waitForFunction(() => (document.querySelector('img[alt="icon"]') as HTMLImageElement | null)?.naturalWidth === 4, undefined, { timeout: 10000 });
 	if (relativeRequests.length) throw new Error(`relative export made network requests: ${relativeRequests}`);
 	await relativeOffline.close();
 	await relativePage.close();
-	step("relative TS, JSON, CSS and images work in viewer and offline export");
+	step("relative TS, JSON, Markdown, CSS and images work in viewer and offline export");
 
 	// Artifacts (any script in the page) cannot read real files outside the viewer's roots:
 	// next to the package (e.g. a home folder holding a checkout), in temp, or daemon state.

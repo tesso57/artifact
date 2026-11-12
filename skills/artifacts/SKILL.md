@@ -64,7 +64,15 @@ React 19, Tailwind CSS v4, shadcn/ui.
   `@pi/artifact`, lucide-react, recharts, @tanstack/react-query, @tanstack/react-table,
   radix-ui, class-variance-authority, clsx, tailwind-merge. No network fetches to
   arbitrary URLs: use MCP tools.
-- Keep the module self-contained and readable: types and constants at the top,
+- The viewer blocks imports from arbitrary project paths, including symlinks that resolve
+  outside its allowed roots. To show a local Markdown file, copy it into the artifact's
+  directory (the `artifact_write` result gives the path), import it with a relative path
+  such as `import notes from "./notes.md?raw"`, and render `<Markdown>{notes}</Markdown>`
+  from `@/components/blocks`. After copying, write and verify again with the same artifact
+  id. The copy is a snapshot: repeat the copy to reflect later changes. Exported HTML
+  includes its contents. Do not use an absolute external import or a symlink to bypass
+  the restriction.
+- Keep the module readable: types and constants at the top,
   components below, one **named** default export (`export default function SalesBoard()`),
   so hot reload keeps state.
 - Render data from MCP or memory as text; never with `dangerouslySetInnerHTML`.

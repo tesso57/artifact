@@ -9,7 +9,7 @@ import { performance } from "node:perf_hooks";
 import { readFile } from "node:fs/promises";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve as resolvePath, sep } from "node:path";
-import type { ViteDevServer } from "vite";
+import { normalizePath, type ViteDevServer } from "vite";
 import { assertArtifactId, assertMemoryScope, isValidId, isValidRuntimeId, TEMPLATE_PREFIX } from "../../shared/ids.ts";
 import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, fsUrl, PACKAGE_ROOT, stateDir, userTemplatesDir } from "../../shared/paths.ts";
 import {
@@ -301,7 +301,7 @@ export class DaemonContext {
 	async refreshStyles(): Promise<void> {
 		const env = this.server?.environments.client;
 		if (!env || !this.server) return;
-		const modules = env.moduleGraph.getModulesByFile(join(VIEWER_DIR, "src/styles.css"));
+		const modules = env.moduleGraph.getModulesByFile(normalizePath(join(VIEWER_DIR, "src/styles.css")));
 		if (!modules?.size) return; // The first stylesheet request will scan the new source.
 		for (const module of modules) env.moduleGraph.invalidateModule(module);
 		await env.transformRequest("/src/styles.css?direct");

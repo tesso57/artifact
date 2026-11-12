@@ -63,6 +63,15 @@ try {
 	step("artifact_write created the artifact and started the viewer daemon");
 
 	const page = await browser.newPage({ viewport: { width: 1100, height: 650 }, deviceScaleFactor: 2 });
+	page.on("websocket", (socket) => socket.on("framereceived", ({ payload }) => {
+		if (typeof payload !== "string") return;
+		try {
+			const message: unknown = JSON.parse(payload);
+			if (message && typeof message === "object" && "type" in message && message.type === "full-reload") {
+				recordNavigationEvent("vite: full-reload message");
+			}
+		} catch {}
+	}));
 	const cdp = await page.context().newCDPSession(page);
 	await cdp.send("Network.enable");
 	cdp.on("Network.requestWillBeSent", (event) => {

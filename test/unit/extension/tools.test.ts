@@ -447,6 +447,10 @@ describe("daemon compatibility", () => {
 		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.3" })).toBe(false);
 	});
 
+	it("does not reuse a 0.4.4 viewer without Unicode heading link fixes", () => {
+		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.4" })).toBe(false);
+	});
+
 	it("does not reuse a prerelease viewer for the corresponding release", () => {
 		expect(compatible({ protocol: PROTOCOL_VERSION, version: `${ours}-rc.1` })).toBe(false);
 	});

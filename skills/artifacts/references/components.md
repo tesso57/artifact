@@ -94,7 +94,7 @@ import design from "./docs/design.md?raw";
 ```
 
 Each path must be unique. Relative links between included `.md` documents open in the viewer,
-including heading fragments; missing targets are reported with their resolved relative path.
+including GitHub-style heading fragments; missing targets are reported with their resolved relative path.
 External links remain normal links.
 The snapshots are bundled into an export; recopy files when the originals change.
 

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import GithubSlugger from "github-slugger";
 import { cn } from "../../lib/utils";
 import { Markdown } from "./markdown";
 
@@ -46,12 +47,9 @@ export function MarkdownDocuments({ documents, initialPath, className }: { docum
 		if (!section.hash) { focusDocument(); return; }
 		let requested: string;
 		try { requested = decodeURIComponent(section.hash.slice(1)); } catch { setNotice("The section link is invalid."); focusDocument(); return; }
-		const used = new Set<string>();
+		const slugger = new GithubSlugger();
 		for (const heading of content.current?.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6") ?? []) {
-			const base = (heading.textContent ?? "").trim().toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, "").replace(/\s/g, "-");
-			let slug = base;
-			for (let count = 1; used.has(slug); count++) slug = `${base}-${count}`;
-			used.add(slug);
+			const slug = slugger.slug(heading.textContent ?? "");
 			if (slug !== requested) continue;
 			heading.tabIndex = -1;
 			heading.focus({ preventScroll: true });

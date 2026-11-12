@@ -131,7 +131,7 @@ try {
 	const metadataFile = readdirSync(cacheRoot).map((name) => join(cacheRoot, name, "deps", "_metadata.json")).find(existsSync);
 	if (!metadataFile) throw new Error("Vite optimizer metadata is missing after the initial page load");
 	const optimized = (JSON.parse(readFileSync(metadataFile, "utf8")) as { optimized?: Record<string, unknown> }).optimized ?? {};
-	if (!("react-markdown" in optimized) || !("remark-gfm" in optimized)) throw new Error("Markdown dependencies were not optimized on initial load");
+	if (["react-markdown", "remark-gfm", "github-slugger"].some((name) => !(name in optimized))) throw new Error("Markdown dependencies were not optimized on initial load");
 	step("login link → page renders MCP data, Tailwind classes, recharts and theme.css");
 	let failCode = true;
 	await page.route("**/_serverFn/**", async (route) => {
@@ -503,8 +503,8 @@ try {
 	// A set of Markdown snapshots can navigate among documents without network access.
 	const docsCode = `import { MarkdownDocuments } from "@/components/blocks";
 		const documents = [
-			{ path: "index.md", title: "Overview", content: "# Overview\\n\\n[Read design](docs/%E8%A8%AD%E8%A8%88.md)\\n\\n[Read details](docs/%E8%A8%AD%E8%A8%88.md#details)\\n\\n[Missing section](docs/%E8%A8%AD%E8%A8%88.md#absent)\\n\\n[Special](docs/plan%231%3F.md)\\n\\n[Missing](missing.md)\\n\\n[Missing Japanese](docs/${encodeURIComponent("未収録.md")})\\n\\n[Website](https://example.com)" },
-			{ path: "docs/設計.md", title: "Design " + "x".repeat(120), content: "# Design document\\n\\n## Details\\n\\n[Return](../index.md)" },
+			{ path: "index.md", title: "Overview", content: "# Overview\\n\\n[Read design](docs/%E8%A8%AD%E8%A8%88.md)\\n\\n[Read details](docs/%E8%A8%AD%E8%A8%88.md#details)\\n\\n[Japanese section](docs/%E8%A8%AD%E8%A8%88.md#${encodeURIComponent("か\u3099")})\\n\\n[Second repeated section](docs/%E8%A8%AD%E8%A8%88.md#repeat-1)\\n\\n[Missing section](docs/%E8%A8%AD%E8%A8%88.md#absent)\\n\\n[Special](docs/plan%231%3F.md)\\n\\n[Missing](missing.md)\\n\\n[Missing Japanese](docs/${encodeURIComponent("未収録.md")})\\n\\n[Website](https://example.com)" },
+			{ path: "docs/設計.md", title: "Design " + "x".repeat(120), content: "# Design document\\n\\n## Details\\n\\n## か\u3099\\n\\n## Repeat\\n\\n## Repeat\\n\\n[Return](../index.md)" },
 			{ path: "docs/plan#1?.md", title: "Special", content: "# Special document\\n\\n[Return](../index.md)" },
 		];
 		export default function Documents() { return <MarkdownDocuments documents={documents} />; }`;
@@ -531,6 +531,12 @@ try {
 	await docsPage.getByRole("heading", { name: "Details" }).waitFor();
 	await docsPage.waitForFunction(() => document.activeElement?.textContent === "Details");
 	await docsPage.getByRole("button", { name: "Return" }).click();
+	await docsPage.getByRole("button", { name: "Japanese section" }).click();
+	await docsPage.waitForFunction(() => document.activeElement?.textContent === "か\u3099");
+	await docsPage.getByRole("button", { name: "Return" }).click();
+	await docsPage.getByRole("button", { name: "Second repeated section" }).click();
+	await docsPage.waitForFunction(() => [...document.querySelectorAll("h2")].filter((heading) => heading.textContent === "Repeat")[1] === document.activeElement);
+	await docsPage.getByRole("button", { name: "Return" }).click();
 	await docsPage.getByRole("button", { name: "Missing section" }).click();
 	await docsPage.getByRole("status").getByText(/section was not found/i).waitFor();
 	await docsPage.waitForFunction(() => document.activeElement?.textContent === "Design document");
@@ -554,6 +560,9 @@ try {
 	await docsOffline.getByRole("button", { name: "Return" }).click();
 	await docsOffline.getByRole("button", { name: "Read details" }).click();
 	await docsOffline.waitForFunction(() => document.activeElement?.textContent === "Details");
+	await docsOffline.getByRole("button", { name: "Return" }).click();
+	await docsOffline.getByRole("button", { name: "Japanese section" }).click();
+	await docsOffline.waitForFunction(() => document.activeElement?.textContent === "か\u3099");
 	await docsOffline.getByRole("button", { name: "Return" }).click();
 	await docsOffline.getByRole("button", { name: "Missing", exact: true }).click();
 	await docsOffline.getByRole("status").getByText(/not included: missing\.md/i).waitFor();

@@ -402,6 +402,15 @@ try {
 	const leakPath = new URL(moduleRequest).pathname.replace(/index\.tsx$/, "leak.txt") + "?raw";
 	const leakResponse = await relativePage.evaluate(async (path) => { const response = await fetch(path); return { status: response.status, text: await response.text() }; }, leakPath);
 	if (leakResponse.status < 400 || leakResponse.text.includes("RELATIVE_PRIVATE_MARKER")) throw new Error("alias allowed a direct symlink escape");
+	const blockedImport = JSON.stringify(`${join(relativeSecretDir, "secret.txt")}?raw`);
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "external-import", title: "External import", code: `import text from ${blockedImport}; export default function Demo() { return <p>{text}</p>; }` })), fauxAssistantMessage("ok")]);
+	await first.prompt("Create an artifact importing an external file");
+	const blockedWrite = first.lastResult("artifact_write");
+	if (!blockedWrite.isError || !blockedWrite.text.includes("outside the allowed viewer roots") || !blockedWrite.text.includes("copy it into the artifact directory")) {
+		throw new Error(`external import did not produce actionable compile error: ${blockedWrite.text}`);
+	}
+	if (blockedWrite.text.includes("RELATIVE_PRIVATE_MARKER")) throw new Error("external import exposed private content in compile error");
+	step("external imports return actionable compile errors without exposing file contents");
 	removeTemporaryDir(relativeSecretDir);
 	writeFileSync(join(relativeDir, "helper.ts"), 'export const label = "second";');
 	await relativePage.getByText("second 42", { exact: true }).waitFor({ timeout: 10000 });

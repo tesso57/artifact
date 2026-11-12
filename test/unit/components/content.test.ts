@@ -44,8 +44,8 @@ describe("content blocks", () => {
 	});
 
 	it("keeps unsafe Markdown links filtered when document navigation is enabled", () => {
-		const html = renderToStaticMarkup(createElement(Markdown, { children: "[Document](other.md) [Unsafe](javascript:alert(1))", onDocumentLink: () => {} }));
-		expect(html).toMatch(/<button[^>]*>Document<\/button>/);
+		const html = renderToStaticMarkup(createElement(Markdown, { children: '[Document](other.md "Document title") [Unsafe](javascript:alert(1))', onDocumentLink: () => {} }));
+		expect(html).toMatch(/<button[^>]*title="Document title"[^>]*>Document<\/button>/);
 		expect(html).not.toContain('href="javascript:');
 	});
 

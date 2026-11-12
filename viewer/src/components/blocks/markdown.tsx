@@ -24,7 +24,7 @@ function MarkdownAnchor({ href, children, ...props }: ComponentProps<"a">) {
 	const onDocumentLink = useContext(DocumentLink);
 	const path = href?.split(/[?#]/, 1)[0] ?? "";
 	const localDocument = onDocumentLink && href && (href.startsWith("#") && href.length > 1 || !/^(?:\/|[a-z][a-z0-9+.-]*:)/i.test(href) && /(?:\.md|%2emd)$/i.test(path));
-	if (localDocument) return <button type="button" className="text-primary cursor-pointer underline underline-offset-4" onClick={() => onDocumentLink(href)}>{children}</button>;
+	if (localDocument) return <button type="button" title={props.title} className="text-primary cursor-pointer underline underline-offset-4" onClick={() => onDocumentLink(href)}>{children}</button>;
 	return <a className="text-primary underline underline-offset-4" href={href} {...props}>{children}</a>;
 }
 

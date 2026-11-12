@@ -68,7 +68,7 @@ export function MarkdownDocuments({ documents, initialPath, className }: { docum
 		let target: URL;
 		try { target = new URL(href, base); } catch { setNotice("This document link is invalid."); return; }
 		const match = documents.find((document) => { const url = documentUrl(document.path); return url && pathKey(url) === pathKey(target); });
-		if (!match) { setSection(null); setNotice("The linked document is not included."); return; }
+		if (!match) { setSection(null); setNotice(`The linked document is not included: ${pathKey(target).replace(/^\//, "")}`); return; }
 		setSelected(match.path);
 		setNotice("");
 		setSection({ hash: target.hash, sequence: (section?.sequence ?? 0) + 1 });
@@ -81,7 +81,7 @@ export function MarkdownDocuments({ documents, initialPath, className }: { docum
 				{documents.map((document) => <option key={document.path} value={document.path}>{document.title}</option>)}
 			</select>
 		</div>
-		{notice && <p role="status" className="text-muted-foreground text-sm">{notice}</p>}
+		{notice && <p role="status" className="text-muted-foreground break-words text-sm">{notice}</p>}
 		<div ref={content}><Markdown onDocumentLink={follow}>{current.content}</Markdown></div>
 	</div>;
 }

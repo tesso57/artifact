@@ -427,32 +427,16 @@ describe("daemon compatibility", () => {
 		expect(compatible(undefined)).toBe(false);
 	});
 
-	it("does not reuse the 0.2.0 viewer that lacks the new content blocks", () => {
-		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.2.0" })).toBe(false);
-	});
-
-	it("does not reuse an unpatched 0.4.0 viewer after the security update", () => {
-		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.0" })).toBe(false);
-	});
-
-	it("does not reuse a 0.4.1 viewer that lacks Markdown document navigation", () => {
-		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.1" })).toBe(false);
-	});
-
-	it("does not reuse a 0.4.2 viewer without early Markdown dependency optimization", () => {
-		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.2" })).toBe(false);
-	});
-
-	it("does not reuse a 0.4.3 viewer without Markdown link detail improvements", () => {
-		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.3" })).toBe(false);
-	});
-
-	it("does not reuse a 0.4.4 viewer without Unicode heading link fixes", () => {
-		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.4" })).toBe(false);
-	});
-
-	it("does not reuse a 0.4.5 viewer without Markdown image mapping", () => {
-		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.5" })).toBe(false);
+	it.each([
+		["0.2.0", "content blocks"],
+		["0.4.0", "security fixes"],
+		["0.4.1", "Markdown document navigation"],
+		["0.4.2", "early Markdown dependency optimization"],
+		["0.4.3", "Markdown link details"],
+		["0.4.4", "Unicode heading links"],
+		["0.4.5", "Markdown image mapping"],
+	])("does not reuse a %s viewer without %s", (version) => {
+		expect(compatible({ protocol: PROTOCOL_VERSION, version })).toBe(false);
 	});
 
 	it("does not reuse a prerelease viewer for the corresponding release", () => {

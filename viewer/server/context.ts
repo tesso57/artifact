@@ -254,7 +254,7 @@ export class DaemonContext {
 		return readFile(await this.moduleFile(moduleUrl), "utf8");
 	}
 
-	/** Transform a module like the browser would; returns the error message, if any. */
+	/** Transform the entry and its local code dependencies; return the first error, if any. */
 	async compileCheck(file: string, moduleUrl = fsUrl(file)): Promise<string | undefined> {
 		const env = this.server?.environments.client;
 		if (!env) return undefined;
@@ -263,7 +263,26 @@ export class DaemonContext {
 		if (virtual) env.moduleGraph.invalidateModule(virtual);
 		try {
 			// Match Vite's HTTP middleware, which decodes the request before transforming it.
-			await env.transformRequest(decodeURI(moduleUrl));
+			const entryUrl = decodeURI(moduleUrl);
+			await env.transformRequest(entryUrl);
+			const entry = await env.moduleGraph.getModuleByUrl(entryUrl);
+			const root = resolvePath(file, "..");
+			const physicalRoot = await realpath(root).catch(() => root);
+			const pending = [...(entry?.importedModules ?? [])];
+			const visited = new Set(pending);
+			for (let i = 0; i < pending.length; i++) {
+				const dependency = pending[i];
+				// Raw assets and styles are fetched differently from JavaScript modules.
+				if (!dependency.file || !/\.(?:[cm]?[jt]sx?|json)$/i.test(dependency.file) || /[?&](?:raw|url|inline)(?:&|$)/.test(dependency.url)) continue;
+				const withinRoot = [root, physicalRoot].some((candidate) => {
+					const local = relative(candidate, dependency.file!);
+					return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local);
+				});
+				if (!withinRoot) continue;
+				env.moduleGraph.invalidateModule(dependency);
+				await env.transformRequest(decodeURI(dependency.url));
+				for (const child of dependency.importedModules) if (!visited.has(child)) { visited.add(child); pending.push(child); }
+			}
 			return undefined;
 		} catch (error) {
 			const e = error as { message?: string; frame?: string };

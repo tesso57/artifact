@@ -28,7 +28,7 @@ link that hot-reloads as the agent iterates.
 - **MCP from artifacts** — `useMcp("server.tool", args)` calls MCP servers connected to
   pi, limited to the artifact's allowlist, with approval for tools that change things.
 - **Feedback for the agent** — `artifact_write` returns compile errors and the runtime
-  errors of an open browser tab.
+  errors of an open browser tab, including compile errors in local code dependencies.
 - **Single-file export** — one self-contained HTML file that works offline (memory and
   MCP results are snapshotted; the tool lists what was embedded).
 - **Skills, templates and a design system** — three pi skills teach the agent to build

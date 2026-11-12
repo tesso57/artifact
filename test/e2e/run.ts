@@ -382,6 +382,22 @@ try {
 	await routePage.close();
 	step("route changes avoid stale content and hot reload preserves component state");
 
+	// A nested module fails before the browser asks for it, so artifact_write must report it.
+	const nestedErrorDir = join(dir, "nested-compile-error");
+	mkdirSync(nestedErrorDir, { recursive: true });
+	writeFileSync(join(nestedErrorDir, "helper.ts"), 'export { broken } from "./nested";');
+	writeFileSync(join(nestedErrorDir, "nested.ts"), "export const broken = ;");
+	const nestedCode = 'import { broken } from "./helper"; export default function Demo() { return <p>{broken}</p>; }';
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "nested-compile-error", title: "Nested compile error", code: nestedCode })), fauxAssistantMessage("ok")]);
+	await first.prompt("Create an artifact with an invalid helper");
+	const nestedError = first.lastResult("artifact_write");
+	if (!nestedError.isError || !nestedError.text.includes("nested.ts")) throw new Error("artifact_write did not report the nested module compile error");
+	writeFileSync(join(nestedErrorDir, "nested.ts"), 'export const broken = "fixed";');
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "nested-compile-error", title: "Nested compile error", code: nestedCode })), fauxAssistantMessage("ok")]);
+	await first.prompt("Fix the invalid helper and rewrite the artifact");
+	if (first.lastResult("artifact_write").isError) throw new Error("artifact_write did not clear the fixed nested compile error");
+	step("artifact_write reports syntax errors in local dependencies");
+
 	// Relative source, stylesheet and asset imports must work even if the root has URL delimiters.
 	const relativeDir = join(dir, "relative-demo");
 	mkdirSync(relativeDir, { recursive: true });

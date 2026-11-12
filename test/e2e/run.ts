@@ -489,6 +489,63 @@ try {
 	await relativePage.close();
 	step("relative TS, JSON, Markdown, CSS and images work in viewer and offline export");
 
+	// A set of Markdown snapshots can navigate among documents without network access.
+	const docsCode = `import { MarkdownDocuments } from "@/components/blocks";
+		const documents = [
+			{ path: "index.md", title: "Overview", content: "# Overview\\n\\n[Read design](docs/%E8%A8%AD%E8%A8%88.md)\\n\\n[Read details](docs/%E8%A8%AD%E8%A8%88.md#details)\\n\\n[Missing section](docs/%E8%A8%AD%E8%A8%88.md#absent)\\n\\n[Special](docs/plan%231%3F.md)\\n\\n[Missing](missing.md)\\n\\n[Website](https://example.com)" },
+			{ path: "docs/設計.md", title: "Design " + "x".repeat(120), content: "# Design document\\n\\n## Details\\n\\n[Return](../index.md)" },
+			{ path: "docs/plan#1?.md", title: "Special", content: "# Special document\\n\\n[Return](../index.md)" },
+		];
+		export default function Documents() { return <MarkdownDocuments documents={documents} />; }`;
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "markdown-documents", title: "Documents", code: docsCode })), fauxAssistantMessage("ok")]);
+	await first.prompt("Create linked Markdown documents");
+	const docsWrite = first.lastResult("artifact_write");
+	if (docsWrite.isError) throw new Error(`Markdown documents did not compile: ${docsWrite.text}`);
+	const docsPage = await browser.newPage();
+	await docsPage.setViewportSize({ width: 375, height: 650 });
+	await docsPage.goto(openLink(docsWrite.text));
+	await docsPage.getByRole("heading", { name: "Overview" }).waitFor();
+	if (await docsPage.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error("Markdown document selector overflows a narrow viewport");
+	await docsPage.getByLabel("Document", { exact: true }).selectOption("docs/設計.md");
+	await docsPage.getByRole("heading", { name: "Design document" }).waitFor();
+	await docsPage.getByLabel("Document", { exact: true }).selectOption("index.md");
+	await docsPage.getByRole("button", { name: "Read design" }).click();
+	await docsPage.getByRole("heading", { name: "Design document" }).waitFor();
+	await docsPage.waitForFunction(() => document.activeElement?.textContent === "Design document");
+	await docsPage.getByRole("button", { name: "Return" }).click();
+	await docsPage.getByRole("button", { name: "Special" }).click();
+	await docsPage.getByRole("heading", { name: "Special document" }).waitFor();
+	await docsPage.getByRole("button", { name: "Return" }).click();
+	await docsPage.getByRole("button", { name: "Read details" }).click();
+	await docsPage.getByRole("heading", { name: "Details" }).waitFor();
+	await docsPage.waitForFunction(() => document.activeElement?.textContent === "Details");
+	await docsPage.getByRole("button", { name: "Return" }).click();
+	await docsPage.getByRole("button", { name: "Missing section" }).click();
+	await docsPage.getByRole("status").getByText(/section was not found/i).waitFor();
+	await docsPage.waitForFunction(() => document.activeElement?.textContent === "Design document");
+	await docsPage.getByRole("button", { name: "Return" }).click();
+	await docsPage.getByRole("button", { name: "Missing", exact: true }).click();
+	await docsPage.getByRole("status").getByText(/not included/i).waitFor();
+	await docsPage.waitForFunction(() => document.activeElement?.textContent === "Missing");
+	if (await docsPage.getByRole("link", { name: "Website" }).getAttribute("href") !== "https://example.com") throw new Error("external Markdown link changed");
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_export", { id: "markdown-documents", path: "markdown-documents.html" })), fauxAssistantMessage("ok")]);
+	await first.prompt("Export the linked Markdown documents");
+	if (first.lastResult("artifact_export").isError) throw new Error("linked Markdown export failed");
+	const docsOffline = await browser.newPage();
+	const docsRequests: string[] = [];
+	docsOffline.on("request", (request) => { if (!/^(file|data|blob):/.test(request.url())) docsRequests.push(request.url()); });
+	await docsOffline.goto(pathToFileURL(join(first.cwd, "markdown-documents.html")).href);
+	await docsOffline.getByRole("button", { name: "Read design" }).click();
+	await docsOffline.getByRole("heading", { name: "Design document" }).waitFor();
+	await docsOffline.waitForFunction(() => document.activeElement?.textContent === "Design document");
+	await docsOffline.getByRole("button", { name: "Return" }).click();
+	await docsOffline.getByRole("button", { name: "Read details" }).click();
+	await docsOffline.waitForFunction(() => document.activeElement?.textContent === "Details");
+	if (docsRequests.length) throw new Error(`Markdown document export made network requests: ${docsRequests}`);
+	await docsOffline.close();
+	await docsPage.close();
+	step("linked Markdown documents navigate in the viewer and offline export");
+
 	// Artifacts (any script in the page) cannot read real files outside the viewer's roots:
 	// next to the package (e.g. a home folder holding a checkout), in temp, or daemon state.
 	// (When installed, the package's parent is the dependency folder, which is served on

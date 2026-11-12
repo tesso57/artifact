@@ -19,6 +19,7 @@ Import from `@/components/ui/<name>` (shadcn/ui, new-york style) and `@/componen
 | `axisProps`, `gridProps`, `tooltipProps`, `CHART_COLORS` | spread onto recharts parts for themed charts |
 | `GanttChart tasks className? empty? aria-label?` | read-only timeline with inclusive dates and optional progress |
 | `Markdown` | themed GitHub-flavored Markdown from a string (raw HTML ignored) |
+| `MarkdownDocuments documents initialPath? className?` | navigate a supplied collection of Markdown snapshots, including relative `.md` links |
 | `DataTable data columns loading? search? pageSize? initialSort? onRowClick? toolbar? empty?` | any list of records |
 | `createColumns<Row>()`, `SortHeader` | columns for `DataTable` |
 | `QueryState query loading? empty? isEmpty?` `{(data) => …}` | render any `useQuery` result with loading/error(retry)/empty |
@@ -77,6 +78,24 @@ Gantt dates are inclusive `YYYY-MM-DD` calendar dates. `progress` is an optional
 from 0 to 100; invalid dates or progress are shown as errors. Markdown supports GitHub-flavored tables and task lists;
 raw HTML is ignored and unsafe links are filtered.
 Use `aria-label` to give each chart a distinct accessible name when a page has multiple timelines.
+
+For related Markdown files, copy the files into the artifact directory while preserving their
+relative paths, import them with `?raw`, and supply the same relative paths to `MarkdownDocuments`:
+
+```tsx
+import { MarkdownDocuments } from "@/components/blocks";
+import overview from "./docs/index.md?raw";
+import design from "./docs/design.md?raw";
+
+<MarkdownDocuments documents={[
+  { path: "docs/index.md", title: "Overview", content: overview },
+  { path: "docs/design.md", title: "Design", content: design },
+]} />
+```
+
+Each path must be unique. Relative links between included `.md` documents open in the viewer,
+including heading fragments; missing targets are reported. External links remain normal links.
+The snapshots are bundled into an export; recopy files when the originals change.
 
 Diagrams — Mermaid, always (structure and flow; never hand-built boxes or SVG):
 

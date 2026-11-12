@@ -435,6 +435,10 @@ describe("daemon compatibility", () => {
 		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.0" })).toBe(false);
 	});
 
+	it("does not reuse a 0.4.1 viewer that lacks Markdown document navigation", () => {
+		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.1" })).toBe(false);
+	});
+
 	it("does not reuse a prerelease viewer for the corresponding release", () => {
 		expect(compatible({ protocol: PROTOCOL_VERSION, version: `${ours}-rc.1` })).toBe(false);
 	});

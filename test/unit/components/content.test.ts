@@ -43,6 +43,12 @@ describe("content blocks", () => {
 		expect(html).not.toContain('aria-label="Check design and notes nested detail"');
 	});
 
+	it("keeps unsafe Markdown links filtered when document navigation is enabled", () => {
+		const html = renderToStaticMarkup(createElement(Markdown, { children: "[Document](other.md) [Unsafe](javascript:alert(1))", onDocumentLink: () => {} }));
+		expect(html).toMatch(/<button[^>]*>Document<\/button>/);
+		expect(html).not.toContain('href="javascript:');
+	});
+
 	it("renders task dates and progress, and reports invalid ranges", () => {
 		const html = renderToStaticMarkup(createElement(GanttChart, { tasks: [
 			{ id: "a", label: "Design", start: "2026-11-01", end: "2026-11-03", progress: 50 },

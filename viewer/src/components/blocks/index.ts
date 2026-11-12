@@ -8,3 +8,4 @@ export { Grid, Page, PageHeader, Section } from "./page";
 export { StatCard } from "./stat-card";
 export { GanttChart, type GanttTask } from "./gantt-chart";
 export { Markdown } from "./markdown";
+export { MarkdownDocuments, type MarkdownDocument } from "./markdown-documents";

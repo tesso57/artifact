@@ -7,6 +7,28 @@ import { pathToFileURL } from "node:url";
 import { nodeTsFlags } from "../../../shared/node.ts";
 import { writeExportFile } from "../../../viewer/server/export-file.ts";
 
+it("can create an export without hard link support and still refuses replacement", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "pi-export-no-link-"));
+	const file = join(dir, "report.html");
+	const module = pathToFileURL(resolve("viewer/server/export-file.ts")).href;
+	const script = `
+		import fs from "node:fs";
+		import { syncBuiltinESMExports } from "node:module";
+		fs.promises.link = async () => { throw Object.assign(new Error("unsupported"), { code: "ENOTSUP" }); };
+		syncBuiltinESMExports();
+		const { writeExportFile } = await import(${JSON.stringify(module)});
+		await writeExportFile(${JSON.stringify(file)}, "first", false);
+		try { await writeExportFile(${JSON.stringify(file)}, "second", false); process.exitCode = 1; }
+		catch (error) { if (!error.message.includes("already exists")) throw error; }
+	`;
+	try {
+		const child = spawnSync(process.execPath, [...nodeTsFlags(), "--input-type=module", "-e", script], { encoding: "utf8" });
+		expect(child.status, child.stderr).toBe(0);
+		expect(await readFile(file, "utf8")).toBe("first");
+		expect(await readdir(dir)).toEqual(["report.html"]);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 it.skipIf(process.platform === "win32")("does not leave a partial new export after a write failure", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "pi-export-full-"));
 	const file = join(dir, "report.html");

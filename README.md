@@ -259,8 +259,9 @@ What is not (artifacts are code the agent wrote, running in your browser):
 - Exports refuse to replace an existing file unless `overwrite` is explicitly enabled.
   Replacement writes the new file before swapping it into place. If the destination is a
   symbolic link, the link itself is replaced and its target is left unchanged.
-  Creating a new export uses a hard link to publish the completed file without replacing
-  an existing destination; the destination filesystem must support hard links.
+  Creating a new export publishes a completed temporary file with a hard link where supported.
+  Otherwise it uses an exclusive copy, which does not replace existing files but is not atomic;
+  the destination may be visible before copying finishes, and failed-copy cleanup is best effort.
 - A newer extension version replaces an older running daemon.
 - A live PID in `viewer.lock/pid` (or a legacy `viewer.lock` file) is not automatically removed, even when the viewer is
   temporarily unresponsive. If a PID was reused after a crash or reboot, verify that it

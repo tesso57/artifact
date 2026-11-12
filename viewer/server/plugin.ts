@@ -85,6 +85,12 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 			if (ctx && parseVirtualModuleUrl(id)) return id;
 			if (!importer || !(await untrusted(importer))) return;
 			if (id.startsWith("file:")) throw new Error("File URLs are not allowed in artifact imports");
+			// Vite may interpret '?' or '#' inside an absolute filename as a URL delimiter
+			// before resolving it. Check an existing raw-import target before that happens.
+			if (isAbsolute(id) && id.endsWith("?raw")) {
+				const file = await realpath(id.slice(0, -4)).catch(() => undefined);
+				if (file) await checkPhysicalFile(file);
+			}
 			await checkRequested(id, importer);
 			const resolved = await this.resolve(id, importer, { skipSelf: true });
 			if (resolved && !resolved.external && isAbsolute(resolved.id)) {

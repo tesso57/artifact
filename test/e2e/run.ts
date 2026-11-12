@@ -127,6 +127,11 @@ try {
 	if (tops.length !== 2 || Math.abs(tops[0] - tops[1]) > 2) throw new Error(`expected two cards side by side, got ${tops}`);
 	const radius = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--radius").trim());
 	if (radius !== "0.1234rem") throw new Error(`theme.css not applied (--radius: ${radius})`);
+	const cacheRoot = join(dir, ".vite-cache");
+	const metadataFile = readdirSync(cacheRoot).map((name) => join(cacheRoot, name, "deps", "_metadata.json")).find(existsSync);
+	if (!metadataFile) throw new Error("Vite optimizer metadata is missing after the initial page load");
+	const optimized = (JSON.parse(readFileSync(metadataFile, "utf8")) as { optimized?: Record<string, unknown> }).optimized ?? {};
+	if (!("react-markdown" in optimized) || !("remark-gfm" in optimized)) throw new Error("Markdown dependencies were not optimized on initial load");
 	step("login link → page renders MCP data, Tailwind classes, recharts and theme.css");
 	let failCode = true;
 	await page.route("**/_serverFn/**", async (route) => {

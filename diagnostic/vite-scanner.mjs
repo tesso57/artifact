@@ -19,7 +19,7 @@ try {
  mkdirSync(join(short,'new-template'));
  writeFileSync(join(short,'new-template','template.tsx'),'<div className="text-[' + '787' + 'px]"/>');
  const graph = server.environments.client.moduleGraph;
- for (const name of ['short','long']) { const file = resolve('diagnostic', name+'.css'); const modules=graph.getModulesByFile(file); console.log(JSON.stringify({phase:'graph',name,count:modules?.size ?? 0})); for (const module of modules ?? []) graph.invalidateModule(module); await server.environments.client.transformRequest('/diagnostic/'+name+'.css?direct'); }
+ for (const name of ['short','long']) { const file = resolve('diagnostic', name+'.css'); const lexical = graph.getModulesByFile(file); const modules=graph.getModulesByFile(file.replaceAll('\\','/')); console.log(JSON.stringify({phase:'graph',name,lexical:lexical?.size ?? 0,normalized:modules?.size ?? 0})); for (const module of modules ?? []) graph.invalidateModule(module); await server.environments.client.transformRequest('/diagnostic/'+name+'.css?direct'); }
  for(let i=0;i<5;i++) {await new Promise(r=>setTimeout(r,1000)); const shortFound=(await read('short')).includes('787' + 'px');const longFound=(await read('long')).includes('787' + 'px');if(shortFound&&longFound) break;}
  for(const name of ['short','long']) console.log(JSON.stringify({phase:'after',name,found:(await read(name)).includes('787' + 'px')}));
  console.log(JSON.stringify({shortDistinct:short.toLowerCase()!==long.toLowerCase()}));

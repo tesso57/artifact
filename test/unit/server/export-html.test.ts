@@ -103,7 +103,7 @@ describe("collectSnapshot", () => {
 	});
 });
 
-it.each(["shared.ts", "_shared/shared.ts"])("refuses an external raw import through shared file %s", async (shared) => {
+it.each(["shared.ts", "_shared/shared.ts", ".vite-cache/shared.js"])("refuses an external raw import through shared file %s", async (shared) => {
 	const root = await mkdtemp(join(tmpdir(), "pi-export-shared-guard-"));
 	const previous = process.env.PI_ARTIFACTS_DIR;
 	try {

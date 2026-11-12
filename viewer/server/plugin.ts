@@ -25,7 +25,6 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 	let sourceRoots: string[] = [];
 	let artifactRoot = "";
 	let packageRoot = "";
-	let cacheRoot = "";
 	let protectedState = "";
 	let lastUpdate = 0;
 	const inside = (root: string, file: string) => {
@@ -38,10 +37,10 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 		if (!isAbsolute(file)) return false;
 		const actual = await canonical(file);
 		// Shared files anywhere under a source root need the same checks as artifact entries.
-		// A runtime package or Vite cache nested under the artifact root is trusted code.
+		// A runtime package nested under the artifact root is trusted code.
 		return sourceRoots.some((root) => inside(root, actual) &&
-			(root !== artifactRoot || (!inside(cacheRoot, actual) &&
-				!(packageRoot !== artifactRoot && inside(artifactRoot, packageRoot) && inside(packageRoot, actual)))));
+			(root !== artifactRoot ||
+				!(packageRoot !== artifactRoot && inside(artifactRoot, packageRoot) && inside(packageRoot, actual))));
 	};
 	const checkPhysicalFile = async (path: string) => {
 		const file = await canonical(path);
@@ -84,7 +83,6 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 			sourceRoots = await Promise.all([artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR].map(canonical));
 			artifactRoot = sourceRoots[0];
 			packageRoot = await canonical(PACKAGE_ROOT);
-			cacheRoot = await canonical(join(artifactsDir(), ".vite-cache"));
 			protectedState = await canonical(stateDir());
 		},
 		async resolveId(id, importer) {

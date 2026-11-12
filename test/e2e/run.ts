@@ -4,7 +4,7 @@
  *   node test/e2e/run.ts            (this checkout)
  *   PI_ARTIFACTS_PACKAGE=… node …   (an installed copy, see pack.ts)
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -428,7 +428,7 @@ try {
 	const leakPath = new URL(moduleRequest).pathname.replace(/index\.tsx$/, "leak.txt") + "?raw";
 	const leakResponse = await relativePage.evaluate(async (path) => { const response = await fetch(path); return { status: response.status, text: await response.text() }; }, leakPath);
 	if (leakResponse.status < 400 || leakResponse.text.includes("RELATIVE_PRIVATE_MARKER")) throw new Error("alias allowed a direct symlink escape");
-	for (const shared of ["root-shared.ts", "_shared/helper.ts"]) {
+	for (const shared of ["root-shared.ts", "_shared/helper.ts", ".vite-cache/shared.js"]) {
 		const sharedPath = join(dir, shared);
 		mkdirSync(dirname(sharedPath), { recursive: true });
 		writeFileSync(sharedPath, `import secret from ${JSON.stringify(`${join(relativeSecretDir, "secret.txt")}?raw`)}; export { secret };`);
@@ -436,6 +436,20 @@ try {
 		if (response.status < 400 || response.text.includes("RELATIVE_PRIVATE_MARKER")) throw new Error("viewer allowed shared code to load a file outside allowed roots");
 	}
 	step("shared code cannot import files outside the viewer roots");
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "cache-import", title: "Cache import", code: 'import { secret } from "../.vite-cache/shared.js"; export default function Demo() { return <p>{secret}</p>; }' })), fauxAssistantMessage("ok")]);
+	await first.prompt("Create an artifact importing cache code with an external dependency");
+	const blockedCache = first.lastResult("artifact_write");
+	if (!blockedCache.isError || !blockedCache.text.includes("outside the allowed viewer roots")) throw new Error("artifact_write did not report the cache dependency error");
+	const optimizerRoot = join(dir, ".vite-cache");
+	const optimizer = readdirSync(optimizerRoot).find((name) => existsSync(join(optimizerRoot, name, "deps")));
+	if (!optimizer) throw new Error("optimizer cache was not created");
+	const optimizerFile = join(optimizerRoot, optimizer, "deps", "guard-probe.js");
+	writeFileSync(optimizerFile, `import secret from ${JSON.stringify(`${join(relativeSecretDir, "secret.txt")}?raw`)}; export { secret };`);
+	const optimizerImport = `../.vite-cache/${optimizer}/deps/guard-probe.js`;
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "optimizer-import", title: "Optimizer import", code: `import { secret } from ${JSON.stringify(optimizerImport)}; export default function Demo() { return <p>{secret}</p>; }` })), fauxAssistantMessage("ok")]);
+	await first.prompt("Create an artifact importing unknown code from the optimizer cache");
+	const blockedOptimizer = first.lastResult("artifact_write");
+	if (!blockedOptimizer.isError || !blockedOptimizer.text.includes("outside the allowed viewer roots")) throw new Error("artifact_write did not report the unknown optimizer-cache dependency error");
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "shared-import", title: "Shared import", code: 'import { secret } from "../root-shared.ts"; export default function Demo() { return <p>{secret}</p>; }' })), fauxAssistantMessage("ok")]);
 	await first.prompt("Create an artifact importing shared code with an external dependency");
 	const blockedShared = first.lastResult("artifact_write");

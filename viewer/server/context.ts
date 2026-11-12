@@ -267,8 +267,8 @@ export class DaemonContext {
 			await env.transformRequest(entryUrl);
 			const entry = await env.moduleGraph.getModuleByUrl(entryUrl);
 			const physical = (path: string) => realpath(path).catch(() => resolvePath(path));
-			const [artifactRoot, templateRoot, bundledRoot, packageRoot, cacheRoot] = await Promise.all([
-				artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR, PACKAGE_ROOT, join(artifactsDir(), ".vite-cache"),
+			const [artifactRoot, templateRoot, bundledRoot, packageRoot] = await Promise.all([
+				artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR, PACKAGE_ROOT,
 			].map(physical));
 			const inside = (root: string, path: string) => {
 				const local = relative(root, path);
@@ -283,7 +283,7 @@ export class DaemonContext {
 				const actual = await physical(dependency.file);
 				const templates = inside(templateRoot, actual) || inside(bundledRoot, actual);
 				const trustedPackage = packageRoot !== artifactRoot && inside(artifactRoot, packageRoot) && inside(packageRoot, actual);
-				if (!templates && (!inside(artifactRoot, actual) || inside(cacheRoot, actual) || trustedPackage)) continue;
+				if (!templates && (!inside(artifactRoot, actual) || trustedPackage)) continue;
 				env.moduleGraph.invalidateModule(dependency);
 				await env.transformRequest(decodeURI(dependency.url));
 				for (const child of dependency.importedModules) if (!visited.has(child)) { visited.add(child); pending.push(child); }

@@ -117,7 +117,7 @@ it("refuses to bundle a raw import through a symlink outside allowed roots", asy
 		const entry = join(artifact, "index.tsx");
 		await writeFile(entry, 'import value from "./leak.txt?raw"; export default function Demo() { return <p>{value}</p>; }');
 		process.env.PI_ARTIFACTS_DIR = artifacts;
-		await expect(bundleArtifact(entry, [entry])).rejects.toThrow(/outside the allowed viewer roots/);
+		await expect(bundleArtifact(entry, [entry])).rejects.toThrow(/outside the allowed viewer roots[\s\S]*copy.*artifact.*relative/i);
 	} finally {
 		if (previous === undefined) delete process.env.PI_ARTIFACTS_DIR;
 		else process.env.PI_ARTIFACTS_DIR = previous;

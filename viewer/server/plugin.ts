@@ -9,6 +9,7 @@ import { parseVirtualModuleUrl } from "./virtual-modules.ts";
 import { validateCssReferences } from "./css-guard.ts";
 
 const SOURCE_PLACEHOLDER = '@source "PI_ARTIFACTS_SOURCES";';
+const outsideRoots = (file: string) => new Error(`File is outside the allowed viewer roots: ${file}\nTo include intended content, copy it into the artifact directory and use a relative import. External symlink targets are also blocked; copied content can be visible in the viewer and exports.`);
 
 /**
  * - points Tailwind at artifact sources (`@source "PI_ARTIFACTS_SOURCES"` in styles.css)
@@ -42,7 +43,7 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 	const checkPhysicalFile = async (path: string) => {
 		const file = await canonical(path);
 		if (inside(protectedState, file) || !isFileLoadingAllowed(policy, file.replaceAll("\\", "/"))) {
-			throw new Error(`File is outside the allowed viewer roots: ${file}`);
+			throw outsideRoots(file);
 		}
 		return file;
 	};
@@ -63,7 +64,7 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 		for (const candidate of candidates) {
 			const requested = resolve(base, candidate);
 			if (inside(protectedState, requested) || !isFileLoadingAllowed(policy, requested.replaceAll("\\", "/"))) {
-				throw new Error(`File is outside the allowed viewer roots: ${requested}`);
+				throw outsideRoots(requested);
 			}
 		}
 	};

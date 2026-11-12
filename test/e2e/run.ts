@@ -63,6 +63,19 @@ try {
 	step("artifact_write created the artifact and started the viewer daemon");
 
 	const page = await browser.newPage({ viewport: { width: 1100, height: 650 }, deviceScaleFactor: 2 });
+	const cdp = await page.context().newCDPSession(page);
+	await cdp.send("Network.enable");
+	cdp.on("Network.requestWillBeSent", (event) => {
+		if (event.type !== "Document") return;
+		let path = "unknown";
+		try { path = new URL(event.request.url).pathname; } catch {}
+		const frame = event.initiator.stack?.callFrames[0];
+		let source = "";
+		if (frame?.url) {
+			try { source = ` ${new URL(frame.url).pathname}:${frame.lineNumber + 1}`; } catch {}
+		}
+		recordNavigationEvent(`initiator: ${path} ${event.initiator.type}${source}`);
+	});
 	page.on("request", (request) => {
 		if (request.isNavigationRequest()) recordNavigationEvent(`request: ${new URL(request.url()).pathname}`);
 	});
@@ -185,6 +198,7 @@ try {
 	step("artifact and template errors support retry and link back to the gallery");
 	if (process.env.E2E_NAVIGATION_STRESS === "1") {
 		for (let attempt = 0; attempt < 30; attempt++) {
+			recordNavigationEvent(`stage: stress missing route ${attempt + 1}`);
 			const [path, message] = attempt % 2 === 0
 				? ["/a/does-not-exist", "Could not load the artifact"]
 				: ["/t/does-not-exist", "Could not load the template"];

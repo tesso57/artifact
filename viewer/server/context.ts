@@ -11,7 +11,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve as resolvePath, sep } from "node:path";
 import type { ViteDevServer } from "vite";
 import { assertArtifactId, assertMemoryScope, isValidId, isValidRuntimeId, TEMPLATE_PREFIX } from "../../shared/ids.ts";
-import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, fsUrl, stateDir, userTemplatesDir } from "../../shared/paths.ts";
+import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, fsUrl, PACKAGE_ROOT, stateDir, userTemplatesDir } from "../../shared/paths.ts";
 import {
 	SESSION_COOKIE,
 	type ArtifactMeta,
@@ -266,19 +266,24 @@ export class DaemonContext {
 			const entryUrl = decodeURI(moduleUrl);
 			await env.transformRequest(entryUrl);
 			const entry = await env.moduleGraph.getModuleByUrl(entryUrl);
-			const root = resolvePath(file, "..");
-			const physicalRoot = await realpath(root).catch(() => root);
+			const physical = (path: string) => realpath(path).catch(() => resolvePath(path));
+			const [artifactRoot, templateRoot, bundledRoot, packageRoot, cacheRoot] = await Promise.all([
+				artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR, PACKAGE_ROOT, join(artifactsDir(), ".vite-cache"),
+			].map(physical));
+			const inside = (root: string, path: string) => {
+				const local = relative(root, path);
+				return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local);
+			};
 			const pending = [...(entry?.importedModules ?? [])];
 			const visited = new Set(pending);
 			for (let i = 0; i < pending.length; i++) {
 				const dependency = pending[i];
 				// Raw assets and styles are fetched differently from JavaScript modules.
 				if (!dependency.file || !/\.(?:[cm]?[jt]sx?|json)$/i.test(dependency.file) || /[?&](?:raw|url|inline)(?:&|$)/.test(dependency.url)) continue;
-				const withinRoot = [root, physicalRoot].some((candidate) => {
-					const local = relative(candidate, dependency.file!);
-					return local !== ".." && !local.startsWith(`..${sep}`) && !isAbsolute(local);
-				});
-				if (!withinRoot) continue;
+				const actual = await physical(dependency.file);
+				const templates = inside(templateRoot, actual) || inside(bundledRoot, actual);
+				const trustedPackage = packageRoot !== artifactRoot && inside(artifactRoot, packageRoot) && inside(packageRoot, actual);
+				if (!templates && (!inside(artifactRoot, actual) || inside(cacheRoot, actual) || trustedPackage)) continue;
 				env.moduleGraph.invalidateModule(dependency);
 				await env.transformRequest(decodeURI(dependency.url));
 				for (const child of dependency.importedModules) if (!visited.has(child)) { visited.add(child); pending.push(child); }

@@ -436,6 +436,15 @@ try {
 		if (response.status < 400 || response.text.includes("RELATIVE_PRIVATE_MARKER")) throw new Error("viewer allowed shared code to load a file outside allowed roots");
 	}
 	step("shared code cannot import files outside the viewer roots");
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "shared-import", title: "Shared import", code: 'import { secret } from "../root-shared.ts"; export default function Demo() { return <p>{secret}</p>; }' })), fauxAssistantMessage("ok")]);
+	await first.prompt("Create an artifact importing shared code with an external dependency");
+	const blockedShared = first.lastResult("artifact_write");
+	if (!blockedShared.isError || !blockedShared.text.includes("outside the allowed viewer roots")) throw new Error("artifact_write did not report the shared dependency error");
+	writeFileSync(join(dir, "root-shared.ts"), 'export const secret = "shared-ok";');
+	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "shared-import", title: "Shared import", code: 'import { secret } from "../root-shared.ts"; export default function Demo() { return <p>{secret}</p>; }' })), fauxAssistantMessage("ok")]);
+	await first.prompt("Replace the shared dependency with allowed content");
+	if (first.lastResult("artifact_write").isError) throw new Error("artifact_write did not accept the fixed shared dependency");
+	step("artifact_write checks shared dependencies and accepts them after correction");
 	const blockedImport = JSON.stringify(`${join(relativeSecretDir, "secret.txt")}?raw`);
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "external-import", title: "External import", code: `import text from ${blockedImport}; export default function Demo() { return <p>{text}</p>; }` })), fauxAssistantMessage("ok")]);
 	await first.prompt("Create an artifact importing an external file");

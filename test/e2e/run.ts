@@ -392,11 +392,12 @@ try {
 	await first.prompt("Create an artifact with an invalid helper");
 	const nestedError = first.lastResult("artifact_write");
 	if (!nestedError.isError || !nestedError.text.includes("nested.ts")) throw new Error("artifact_write did not report the nested module compile error");
-	writeFileSync(join(nestedErrorDir, "nested.ts"), 'export const broken = "fixed";');
+	// A valid cycle must terminate the dependency walk after the error is fixed.
+	writeFileSync(join(nestedErrorDir, "nested.ts"), 'import "./helper"; export const broken = "fixed";');
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "nested-compile-error", title: "Nested compile error", code: nestedCode })), fauxAssistantMessage("ok")]);
 	await first.prompt("Fix the invalid helper and rewrite the artifact");
 	if (first.lastResult("artifact_write").isError) throw new Error("artifact_write did not clear the fixed nested compile error");
-	step("artifact_write reports syntax errors in local dependencies");
+	step("artifact_write reports local dependency errors and accepts a fixed cycle");
 
 	// Relative source, stylesheet and asset imports must work even if the root has URL delimiters.
 	const relativeDir = join(dir, "relative-demo");

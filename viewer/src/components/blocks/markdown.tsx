@@ -1,4 +1,4 @@
-import { createContext, useContext, type ComponentProps } from "react";
+import { createContext, useContext, useState, type ComponentProps } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "../../lib/utils";
@@ -31,7 +31,20 @@ function MarkdownAnchor({ href, children, ...props }: ComponentProps<"a">) {
 
 function MarkdownImage({ src, ...props }: ComponentProps<"img">) {
 	const resolveImage = useContext(ImageResolver);
-	return <img className="h-auto max-w-full rounded-md" src={src && resolveImage ? resolveImage(src) ?? src : src} {...props} />;
+	const actual = src && resolveImage ? resolveImage(src) ?? src : src;
+	const relative = src && !/^(?:\/|#|[a-z][a-z0-9+.-]*:)/i.test(src);
+	return <MarkdownImageState key={actual ?? ""} original={src} actual={actual} showFallback={Boolean(resolveImage && relative)} {...props} />;
+}
+
+function MarkdownImageState({ original, actual, showFallback, alt, onError, onLoad, ...props }: Omit<ComponentProps<"img">, "src"> & { original?: string; actual?: string; showFallback: boolean }) {
+	const [failed, setFailed] = useState(false);
+	if (showFallback && original && actual && failed) {
+		let path = original.split(/[?#]/, 1)[0];
+		try { path = decodeURIComponent(path); } catch {}
+		const text = `Image unavailable: ${path}`;
+		return <span role="img" aria-hidden={alt === "" ? true : undefined} aria-label={alt ? `${alt}: ${text}` : text} className="text-muted-foreground break-words text-sm">{alt && <><span>{alt}</span>{": "}</>}<span>{text}</span></span>;
+	}
+	return <img className="h-auto max-w-full rounded-md" src={actual} alt={alt} onError={(event) => { if (showFallback) setFailed(true); onError?.(event); }} onLoad={(event) => { if (failed) setFailed(false); onLoad?.(event); }} {...props} />;
 }
 
 const MARKDOWN_COMPONENTS: Components = {

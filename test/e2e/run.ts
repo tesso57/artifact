@@ -505,23 +505,37 @@ try {
 	mkdirSync(docsAssetDir, { recursive: true });
 	writeFileSync(join(docsAssetDir, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"></svg>');
 	const docsCode = `import { MarkdownDocuments } from "@/components/blocks";
+		import { useState } from "react";
 		import icon from "./icon.svg";
 		const documents = [
-			{ path: "index.md", title: "Overview", content: "# Overview\\n\\n![Diagram](images/icon.svg)\\n\\n![Special diagram](images/icon%231%3F.svg)\\n\\n[Read design](docs/%E8%A8%AD%E8%A8%88.md)\\n\\n[Read details](docs/%E8%A8%AD%E8%A8%88.md#details)\\n\\n[Japanese section](docs/%E8%A8%AD%E8%A8%88.md#${encodeURIComponent("か\u3099")})\\n\\n[Second repeated section](docs/%E8%A8%AD%E8%A8%88.md#repeat-1)\\n\\n[Missing section](docs/%E8%A8%AD%E8%A8%88.md#absent)\\n\\n[Special](docs/plan%231%3F.md)\\n\\n[Missing](missing.md)\\n\\n[Missing Japanese](docs/${encodeURIComponent("未収録.md")})\\n\\n[Website](https://example.com)" },
+			{ path: "index.md", title: "Overview", content: "# Overview\\n\\n![Diagram](images/icon.svg)\\n\\n![Special diagram](images/icon%231%3F.svg)\\n\\n![Missing diagram](images/missing.png)\\n\\n![](images/decorative.png)\\n\\n[Read design](docs/%E8%A8%AD%E8%A8%88.md)\\n\\n[Read details](docs/%E8%A8%AD%E8%A8%88.md#details)\\n\\n[Japanese section](docs/%E8%A8%AD%E8%A8%88.md#${encodeURIComponent("か\u3099")})\\n\\n[Second repeated section](docs/%E8%A8%AD%E8%A8%88.md#repeat-1)\\n\\n[Missing section](docs/%E8%A8%AD%E8%A8%88.md#absent)\\n\\n[Special](docs/plan%231%3F.md)\\n\\n[Missing](missing.md)\\n\\n[Missing Japanese](docs/${encodeURIComponent("未収録.md")})\\n\\n[Website](https://example.com)" },
 			{ path: "docs/設計.md", title: "Design " + "x".repeat(120), content: "# Design document\\n\\n![Nested diagram](../images/icon.svg)\\n\\n## Details\\n\\n## か\u3099\\n\\n## Repeat\\n\\n## Repeat\\n\\n[Return](../index.md)" },
 			{ path: "docs/plan#1?.md", title: "Special", content: "# Special document\\n\\n[Return](../index.md)" },
 		];
-		export default function Documents() { return <MarkdownDocuments documents={documents} assets={{ "images/icon.svg": icon, "images/icon#1?.svg": icon }} />; }`;
+		export default function Documents() { const [image, setImage] = useState(0); return <><button onClick={() => setImage((value) => value + 1)}>Switch image</button><MarkdownDocuments documents={documents} assets={{ "images/icon.svg": icon, "images/icon#1?.svg": icon, "images/missing.png": image === 1 ? icon : "/synthetic-image-a.svg" }} /></>; }`;
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "markdown-documents", title: "Documents", code: docsCode })), fauxAssistantMessage("ok")]);
 	await first.prompt("Create linked Markdown documents");
 	const docsWrite = first.lastResult("artifact_write");
 	if (docsWrite.isError) throw new Error(`Markdown documents did not compile: ${docsWrite.text}`);
 	const docsPage = await browser.newPage();
+	let imageAAvailable = false;
+	await docsPage.route("**/synthetic-image-a.svg", async (route) => {
+		if (imageAAvailable) await route.fulfill({ status: 200, contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"></svg>' });
+		else await route.fulfill({ status: 404, body: "" });
+	});
 	await docsPage.setViewportSize({ width: 375, height: 650 });
 	await docsPage.goto(openLink(docsWrite.text));
 	await docsPage.getByRole("heading", { name: "Overview" }).waitFor();
 	await docsPage.waitForFunction(() => (document.querySelector('img[alt="Diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);
 	await docsPage.waitForFunction(() => (document.querySelector('img[alt="Special diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);
+	await docsPage.getByText("Image unavailable: images/missing.png").waitFor();
+	await docsPage.getByText("Missing diagram", { exact: true }).waitFor();
+	await docsPage.getByRole("button", { name: "Switch image" }).click();
+	await docsPage.waitForFunction(() => (document.querySelector('img[alt="Missing diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);
+	imageAAvailable = true;
+	await docsPage.getByRole("button", { name: "Switch image" }).click();
+	await docsPage.waitForFunction(() => (document.querySelector('img[alt="Missing diagram"]') as HTMLImageElement | null)?.naturalWidth === 4, undefined, { timeout: 5000 });
+	await docsPage.locator('[role="img"][aria-hidden="true"]').getByText("Image unavailable: images/decorative.png").waitFor();
 	if (await docsPage.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error("Markdown document selector overflows a narrow viewport");
 	await docsPage.getByLabel("Document", { exact: true }).selectOption("docs/設計.md");
 	await docsPage.getByRole("heading", { name: "Design document" }).waitFor();
@@ -563,6 +577,9 @@ try {
 	await docsOffline.goto(pathToFileURL(join(first.cwd, "markdown-documents.html")).href);
 	await docsOffline.waitForFunction(() => (document.querySelector('img[alt="Diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);
 	await docsOffline.waitForFunction(() => (document.querySelector('img[alt="Special diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);
+	await docsOffline.getByText("Image unavailable: images/missing.png").waitFor();
+	await docsOffline.getByText("Missing diagram", { exact: true }).waitFor();
+	await docsOffline.locator('[role="img"][aria-hidden="true"]').getByText("Image unavailable: images/decorative.png").waitFor();
 	await docsOffline.getByRole("button", { name: "Read design" }).click();
 	await docsOffline.getByRole("heading", { name: "Design document" }).waitFor();
 	await docsOffline.waitForFunction(() => (document.querySelector('img[alt="Nested diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);

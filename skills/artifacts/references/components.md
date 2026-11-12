@@ -99,7 +99,7 @@ including GitHub-style heading fragments; missing targets are reported with thei
 External links remain normal links.
 For relative images, import the copied image and map its root-relative document path in
 `assets`; the same mapping works from nested documents and is bundled into offline exports.
-Unmapped image URLs are left unchanged.
+Unmapped image URLs are left unchanged; relative images that fail to load show their alt text and path.
 The snapshots are bundled into an export; recopy files when the originals change.
 
 Diagrams — Mermaid, always (structure and flow; never hand-built boxes or SVG):

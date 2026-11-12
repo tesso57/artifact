@@ -12,5 +12,4 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: node diagnostic/scanner.mjs
-      - run: node diagnostic/vite-scanner.mjs
+      - run: npx vitest run test/unit/server/style-refresh.test.ts

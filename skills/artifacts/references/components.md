@@ -19,7 +19,7 @@ Import from `@/components/ui/<name>` (shadcn/ui, new-york style) and `@/componen
 | `axisProps`, `gridProps`, `tooltipProps`, `CHART_COLORS` | spread onto recharts parts for themed charts |
 | `GanttChart tasks className? empty? aria-label?` | read-only timeline with inclusive dates and optional progress |
 | `Markdown` | themed GitHub-flavored Markdown from a string (raw HTML ignored) |
-| `MarkdownDocuments documents initialPath? className?` | navigate a supplied collection of Markdown snapshots, including relative `.md` links |
+| `MarkdownDocuments documents assets? initialPath? className?` | navigate Markdown snapshots and resolve supplied relative image assets |
 | `DataTable data columns loading? search? pageSize? initialSort? onRowClick? toolbar? empty?` | any list of records |
 | `createColumns<Row>()`, `SortHeader` | columns for `DataTable` |
 | `QueryState query loading? empty? isEmpty?` `{(data) => …}` | render any `useQuery` result with loading/error(retry)/empty |
@@ -86,16 +86,20 @@ relative paths, import them with `?raw`, and supply the same relative paths to `
 import { MarkdownDocuments } from "@/components/blocks";
 import overview from "./docs/index.md?raw";
 import design from "./docs/design.md?raw";
+import diagram from "./docs/assets/diagram.png";
 
 <MarkdownDocuments documents={[
   { path: "docs/index.md", title: "Overview", content: overview },
   { path: "docs/design.md", title: "Design", content: design },
-]} />
+]} assets={{ "docs/assets/diagram.png": diagram }} />
 ```
 
 Each path must be unique. Relative links between included `.md` documents open in the viewer,
 including GitHub-style heading fragments; missing targets are reported with their resolved relative path.
 External links remain normal links.
+For relative images, import the copied image and map its root-relative document path in
+`assets`; the same mapping works from nested documents and is bundled into offline exports.
+Unmapped image URLs are left unchanged.
 The snapshots are bundled into an export; recopy files when the originals change.
 
 Diagrams — Mermaid, always (structure and flow; never hand-built boxes or SVG):

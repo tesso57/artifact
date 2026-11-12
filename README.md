@@ -20,7 +20,7 @@ link that hot-reloads as the agent iterates.
   `ChartCard`, `Page`/`Section`/`Grid`), recharts and lucide icons. Light and dark.
 - **Project timelines and Markdown** — `GanttChart` shows inclusive task dates and
   progress; `Markdown` renders GitHub-flavored Markdown, including tables and task lists.
-  `MarkdownDocuments` navigates relative links among supplied Markdown snapshots.
+  `MarkdownDocuments` navigates relative links and maps images among supplied snapshots.
 - **Mermaid first for diagrams** — `<Mermaid>` / `<DiagramCard>` render architecture,
   sequence, state, ER and other diagrams in the theme; the agent is told to prefer them
   over hand-built visuals, with a `diagram` template to start from.

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import GithubSlugger from "github-slugger";
 import { cn } from "../../lib/utils";
 import { Markdown } from "./markdown";
@@ -27,12 +27,17 @@ function pathKey(url: URL): string {
 }
 
 /** Display a collection of Markdown snapshots and navigate between relative .md links. */
-export function MarkdownDocuments({ documents, initialPath, className }: { documents: readonly MarkdownDocument[]; initialPath?: string; className?: string }) {
+export function MarkdownDocuments({ documents, assets, initialPath, className }: { documents: readonly MarkdownDocument[]; assets?: Readonly<Record<string, string>>; initialPath?: string; className?: string }) {
 	const id = useId();
 	const [selected, setSelected] = useState(initialPath ?? documents[0]?.path);
 	const [notice, setNotice] = useState("");
 	const [section, setSection] = useState<{ hash: string; sequence: number } | null>(null);
 	const content = useRef<HTMLDivElement>(null);
+	const assetIndex = useMemo(() => {
+		const index = new Map<string, string>();
+		for (const [path, url] of Object.entries(assets ?? {})) { const resolved = documentUrl(path); if (resolved) index.set(pathKey(resolved), url); }
+		return index;
+	}, [assets]);
 	const current = documents.find((document) => document.path === selected) ?? documents[0];
 	useEffect(() => {
 		if (!section) return;
@@ -71,6 +76,14 @@ export function MarkdownDocuments({ documents, initialPath, className }: { docum
 		setNotice("");
 		setSection({ hash: target.hash, sequence: (section?.sequence ?? 0) + 1 });
 	};
+	const resolveImage = (src: string) => {
+		if (/^(?:\/|#|[a-z][a-z0-9+.-]*:)/i.test(src)) return undefined;
+		try {
+			const target = new URL(src, documentUrl(current.path));
+			const asset = assetIndex.get(pathKey(target));
+			return asset && target.hash ? `${asset.split("#", 1)[0]}${target.hash}` : asset;
+		} catch { return undefined; }
+	};
 
 	return <div className={cn("space-y-4", className)}>
 		<div className="flex flex-wrap items-center gap-2 text-sm">
@@ -80,6 +93,6 @@ export function MarkdownDocuments({ documents, initialPath, className }: { docum
 			</select>
 		</div>
 		{notice && <p role="status" className="text-muted-foreground break-words text-sm">{notice}</p>}
-		<div ref={content}><Markdown onDocumentLink={follow}>{current.content}</Markdown></div>
+		<div ref={content}><Markdown onDocumentLink={follow} resolveImage={resolveImage}>{current.content}</Markdown></div>
 	</div>;
 }

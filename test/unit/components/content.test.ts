@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { GanttChart } from "../../../viewer/src/components/blocks/gantt-chart";
 import { Markdown } from "../../../viewer/src/components/blocks/markdown";
+import { MarkdownDocuments } from "../../../viewer/src/components/blocks/markdown-documents";
 import { MutationError, QueryState } from "../../../viewer/src/components/blocks/query-state";
 import { createColumns, DataTable, SortHeader } from "../../../viewer/src/components/blocks/data-table";
 
@@ -47,6 +48,15 @@ describe("content blocks", () => {
 		const html = renderToStaticMarkup(createElement(Markdown, { children: '[Document](other.md "Document title") [Unsafe](javascript:alert(1))', onDocumentLink: () => {} }));
 		expect(html).toMatch(/<button[^>]*title="Document title"[^>]*>Document<\/button>/);
 		expect(html).not.toContain('href="javascript:');
+	});
+
+	it("resolves supplied relative images without changing external image URLs", () => {
+		const html = renderToStaticMarkup(createElement(MarkdownDocuments, {
+			documents: [{ path: "docs/readme.md", title: "Readme", content: "![Local](../images/icon.png) ![External](https://example.com/icon.png)" }],
+			assets: { "images/icon.png": "data:image/png;base64,AA==" },
+		}));
+		expect(html).toContain('src="data:image/png;base64,AA=="');
+		expect(html).toContain('src="https://example.com/icon.png"');
 	});
 
 	it("renders task dates and progress, and reports invalid ranges", () => {

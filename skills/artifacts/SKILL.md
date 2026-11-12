@@ -74,7 +74,8 @@ React 19, Tailwind CSS v4, shadcn/ui.
   the restriction.
 - For related Markdown files, preserve their relative paths when copying and use
   `MarkdownDocuments` with each path, title and imported text. Relative links to included
-  documents navigate inside the collection; missing documents are reported. See
+  documents navigate inside the collection; missing documents are reported. Map imported
+  images with `assets` when the Markdown uses relative image paths. See
   `references/components.md` for an example.
 - Keep the module readable: types and constants at the top,
   components below, one **named** default export (`export default function SalesBoard()`),

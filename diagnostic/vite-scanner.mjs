@@ -15,10 +15,10 @@ try {
  await server.listen();
  const origin=`http://127.0.0.1:${server.httpServer.address().port}`;
  const read=async(name)=>(await fetch(`${origin}/diagnostic/${name}.css`)).text();
- for(const name of ['short','long']) console.log(JSON.stringify({phase:'before',name,found:(await read(name)).includes('31px')}));
+ for(const name of ['short','long']) console.log(JSON.stringify({phase:'before',name,found:(await read(name)).includes('787' + 'px')}));
  mkdirSync(join(short,'new-template'));
- writeFileSync(join(short,'new-template','template.tsx'),'<div className="text-[31px]"/>');
- for(let i=0;i<15;i++) {await new Promise(r=>setTimeout(r,1000)); const shortFound=(await read('short')).includes('31px');const longFound=(await read('long')).includes('31px');if(shortFound&&longFound) break;}
- for(const name of ['short','long']) console.log(JSON.stringify({phase:'after',name,found:(await read(name)).includes('31px')}));
+ writeFileSync(join(short,'new-template','template.tsx'),'<div className="text-[' + '787' + 'px]"/>');
+ for(let i=0;i<15;i++) {await new Promise(r=>setTimeout(r,1000)); const shortFound=(await read('short')).includes('787' + 'px');const longFound=(await read('long')).includes('787' + 'px');if(shortFound&&longFound) break;}
+ for(const name of ['short','long']) console.log(JSON.stringify({phase:'after',name,found:(await read(name)).includes('787' + 'px')}));
  console.log(JSON.stringify({shortDistinct:short.toLowerCase()!==long.toLowerCase()}));
 } finally {await server.close()}

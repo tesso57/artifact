@@ -41,6 +41,7 @@ let first: Awaited<ReturnType<typeof startPi>> | undefined;
 let second: Awaited<ReturnType<typeof startPi>> | undefined;
 let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined;
 const navigationEvents: string[] = [];
+const reloadCounts = new Map<string, number>();
 const recordNavigationEvent = (event: string) => {
 	navigationEvents.push(event);
 	if (navigationEvents.length > 50) navigationEvents.shift();
@@ -68,7 +69,11 @@ try {
 		try {
 			const message: unknown = JSON.parse(payload);
 			if (message && typeof message === "object" && "type" in message && message.type === "full-reload") {
-				recordNavigationEvent("vite: full-reload message");
+				const detail = message as { path?: unknown; ifFallback?: unknown; triggeredBy?: unknown };
+				const scope = detail.path === "*" ? "all" : typeof detail.path === "string" ? "scoped" : "unspecified";
+				const kind = `scope=${scope} fallback=${detail.ifFallback === true} file=${typeof detail.triggeredBy === "string" ? basename(detail.triggeredBy) : "unspecified"}`;
+				reloadCounts.set(kind, (reloadCounts.get(kind) ?? 0) + 1);
+				recordNavigationEvent(`vite: full-reload ${kind}`);
 			}
 		} catch {}
 	}));
@@ -220,6 +225,7 @@ try {
 			await page.getByText("★ 1234").waitFor({ timeout: 10000 });
 		}
 		step("repeated navigation after missing routes");
+		console.log("Navigation reload diagnostics:", JSON.stringify(Object.fromEntries(reloadCounts)));
 	}
 
 	// A subagent can inspect an artifact, then give its parent a fresh one-use link.

@@ -401,10 +401,17 @@ describe("daemon compatibility", () => {
 			expect(await client.ensure()).toEqual(viewer);
 			expect(shutdowns).toBe(1);
 			expect(spawn).toHaveBeenCalledOnce();
+			health = { protocol: PROTOCOL_VERSION, version: "0.4.0" };
+			stopped = false;
+			const unpatched = new DaemonClient();
+			const replacement = vi.spyOn(unpatched as unknown as { spawn: () => Promise<typeof viewer> }, "spawn").mockResolvedValue(viewer);
+			expect(await unpatched.ensure()).toEqual(viewer);
+			expect(shutdowns).toBe(2);
+			expect(replacement).toHaveBeenCalledOnce();
 			health = { protocol: PROTOCOL_VERSION + 1, version: bump(ours, 1) };
 			stopped = false;
 			await expect(new DaemonClient().ensure()).rejects.toThrow(/newer, incompatible/);
-			expect(shutdowns).toBe(1);
+			expect(shutdowns).toBe(2);
 		} finally {
 			delete process.env.PI_ARTIFACTS_STATE;
 			await new Promise<void>((done) => server.close(() => done()));
@@ -422,6 +429,10 @@ describe("daemon compatibility", () => {
 
 	it("does not reuse the 0.2.0 viewer that lacks the new content blocks", () => {
 		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.2.0" })).toBe(false);
+	});
+
+	it("does not reuse an unpatched 0.4.0 viewer after the security update", () => {
+		expect(compatible({ protocol: PROTOCOL_VERSION, version: "0.4.0" })).toBe(false);
 	});
 
 	it("does not reuse a prerelease viewer for the corresponding release", () => {

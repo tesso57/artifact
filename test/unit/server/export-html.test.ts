@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { runInNewContext } from "node:vm";
 import { DatabaseSync } from "node:sqlite";
 import { Memory } from "../../../viewer/server/memory.ts";
@@ -101,6 +101,88 @@ describe("collectSnapshot", () => {
 		expect(collectSnapshot(m, { id: "art", title: "Art", mcp: ["mcp__*"] }).mcp).toEqual({});
 		m.close();
 	});
+});
+
+it.each(["shared.ts", "_shared/shared.ts"])("refuses an external raw import through shared file %s", async (shared) => {
+	const root = await mkdtemp(join(tmpdir(), "pi-export-shared-guard-"));
+	const previous = process.env.PI_ARTIFACTS_DIR;
+	try {
+		const artifacts = join(root, "artifacts");
+		const artifact = join(artifacts, "demo");
+		await mkdir(artifact, { recursive: true });
+		const outside = join(root, "secret.txt");
+		await writeFile(outside, "PRIVATE_MARKER");
+		await mkdir(dirname(join(artifacts, shared)), { recursive: true });
+		await writeFile(join(artifacts, shared), `import secret from ${JSON.stringify(`${outside}?raw`)}; export { secret };`);
+		const entry = join(artifact, "index.tsx");
+		await writeFile(entry, `import { secret } from ${JSON.stringify(`../${shared}`)}; export default function Demo() { return <p>{secret}</p>; }`);
+		process.env.PI_ARTIFACTS_DIR = artifacts;
+		await expect(bundleArtifact(entry, [entry])).rejects.toThrow(/outside the allowed viewer roots/);
+	} finally {
+		if (previous === undefined) delete process.env.PI_ARTIFACTS_DIR;
+		else process.env.PI_ARTIFACTS_DIR = previous;
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+it("allows shared code within the artifact root", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-export-shared-safe-"));
+	const previous = process.env.PI_ARTIFACTS_DIR;
+	try {
+		const artifacts = join(root, "artifacts");
+		const artifact = join(artifacts, "demo");
+		await mkdir(artifact, { recursive: true });
+		await writeFile(join(artifacts, "shared.ts"), 'export const label = "SHARED_ALLOWED_MARKER";');
+		const entry = join(artifact, "index.tsx");
+		await writeFile(entry, 'import { label } from "../shared.ts"; export default function Demo() { return <p>{label}</p>; }');
+		process.env.PI_ARTIFACTS_DIR = artifacts;
+		expect((await bundleArtifact(entry, [entry])).js).toContain("SHARED_ALLOWED_MARKER");
+	} finally {
+		if (previous === undefined) delete process.env.PI_ARTIFACTS_DIR;
+		else process.env.PI_ARTIFACTS_DIR = previous;
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+it("refuses external CSS imports from a shared stylesheet at the artifact root", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-export-shared-css-"));
+	const previous = process.env.PI_ARTIFACTS_DIR;
+	try {
+		const artifacts = join(root, "artifacts");
+		const artifact = join(artifacts, "demo");
+		await mkdir(artifact, { recursive: true });
+		await writeFile(join(root, "secret.css"), ".secret { color: red; }");
+		await writeFile(join(artifacts, "shared.css"), '@import "../secret.css";');
+		const entry = join(artifact, "index.tsx");
+		await writeFile(entry, 'import "../shared.css"; export default function Demo() { return <p>hello</p>; }');
+		process.env.PI_ARTIFACTS_DIR = artifacts;
+		await expect(bundleArtifact(entry, [entry])).rejects.toThrow(/outside the allowed viewer roots/);
+	} finally {
+		if (previous === undefined) delete process.env.PI_ARTIFACTS_DIR;
+		else process.env.PI_ARTIFACTS_DIR = previous;
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+it("refuses external imports through shared user-template code", async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-export-template-shared-"));
+	const previous = process.env.PI_ARTIFACTS_TEMPLATES;
+	try {
+		const templates = join(root, "templates");
+		const template = join(templates, "demo");
+		await mkdir(template, { recursive: true });
+		const outside = join(root, "secret.txt");
+		await writeFile(outside, "PRIVATE_MARKER");
+		await writeFile(join(templates, "shared.ts"), `import secret from ${JSON.stringify(`${outside}?raw`)}; export { secret };`);
+		const entry = join(template, "template.tsx");
+		await writeFile(entry, 'import { secret } from "../shared.ts"; export default function Demo() { return <p>{secret}</p>; }');
+		process.env.PI_ARTIFACTS_TEMPLATES = templates;
+		await expect(bundleArtifact(entry, [entry])).rejects.toThrow(/outside the allowed viewer roots/);
+	} finally {
+		if (previous === undefined) delete process.env.PI_ARTIFACTS_TEMPLATES;
+		else process.env.PI_ARTIFACTS_TEMPLATES = previous;
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 it("refuses to bundle a raw import through a symlink outside allowed roots", async () => {

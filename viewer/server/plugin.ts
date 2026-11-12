@@ -1,7 +1,7 @@
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { readFile, realpath } from "node:fs/promises";
 import { isFileLoadingAllowed, type Plugin, type ResolvedConfig } from "vite";
-import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, stateDir, userTemplatesDir } from "../../shared/paths.ts";
+import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, PACKAGE_ROOT, stateDir, userTemplatesDir } from "../../shared/paths.ts";
 import { ARTIFACTS_CHANGED_EVENT } from "../src/lib/events.ts";
 import { apiMiddleware, guardMiddleware } from "./api.ts";
 import type { DaemonContext } from "./context.ts";
@@ -23,6 +23,9 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 	let resolveCssImport: ReturnType<ResolvedConfig["createResolver"]>;
 	let resolveCssUrl: ReturnType<ResolvedConfig["createResolver"]>;
 	let sourceRoots: string[] = [];
+	let artifactRoot = "";
+	let packageRoot = "";
+	let cacheRoot = "";
 	let protectedState = "";
 	let lastUpdate = 0;
 	const inside = (root: string, file: string) => {
@@ -34,11 +37,11 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 		const file = virtualFiles.get(id) ?? id.split("?")[0];
 		if (!isAbsolute(file)) return false;
 		const actual = await canonical(file);
-		return sourceRoots.some((root) => {
-			const rel = relative(root, actual);
-			const first = rel.split(sep)[0];
-			return inside(root, actual) && /^[a-z0-9][a-z0-9-]{0,63}$/.test(first);
-		});
+		// Shared files anywhere under a source root need the same checks as artifact entries.
+		// A runtime package or Vite cache nested under the artifact root is trusted code.
+		return sourceRoots.some((root) => inside(root, actual) &&
+			(root !== artifactRoot || (!inside(cacheRoot, actual) &&
+				!(packageRoot !== artifactRoot && inside(artifactRoot, packageRoot) && inside(packageRoot, actual)))));
 	};
 	const checkPhysicalFile = async (path: string) => {
 		const file = await canonical(path);
@@ -79,6 +82,9 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 			resolveCssImport = config.createResolver({ extensions: [".css"], mainFields: ["style"], conditions: ["style", "development|production"], tryIndex: false, preferRelative: true });
 			resolveCssUrl = config.createResolver({ preferRelative: true, tryIndex: false, extensions: [] });
 			sourceRoots = await Promise.all([artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR].map(canonical));
+			artifactRoot = sourceRoots[0];
+			packageRoot = await canonical(PACKAGE_ROOT);
+			cacheRoot = await canonical(join(artifactsDir(), ".vite-cache"));
 			protectedState = await canonical(stateDir());
 		},
 		async resolveId(id, importer) {

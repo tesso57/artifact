@@ -428,6 +428,14 @@ try {
 	const leakPath = new URL(moduleRequest).pathname.replace(/index\.tsx$/, "leak.txt") + "?raw";
 	const leakResponse = await relativePage.evaluate(async (path) => { const response = await fetch(path); return { status: response.status, text: await response.text() }; }, leakPath);
 	if (leakResponse.status < 400 || leakResponse.text.includes("RELATIVE_PRIVATE_MARKER")) throw new Error("alias allowed a direct symlink escape");
+	for (const shared of ["root-shared.ts", "_shared/helper.ts"]) {
+		const sharedPath = join(dir, shared);
+		mkdirSync(dirname(sharedPath), { recursive: true });
+		writeFileSync(sharedPath, `import secret from ${JSON.stringify(`${join(relativeSecretDir, "secret.txt")}?raw`)}; export { secret };`);
+		const response = await relativePage.evaluate(async (url) => { const r = await fetch(url); return { status: r.status, text: await r.text() }; }, fsUrl(sharedPath));
+		if (response.status < 400 || response.text.includes("RELATIVE_PRIVATE_MARKER")) throw new Error("viewer allowed shared code to load a file outside allowed roots");
+	}
+	step("shared code cannot import files outside the viewer roots");
 	const blockedImport = JSON.stringify(`${join(relativeSecretDir, "secret.txt")}?raw`);
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "external-import", title: "External import", code: `import text from ${blockedImport}; export default function Demo() { return <p>{text}</p>; }` })), fauxAssistantMessage("ok")]);
 	await first.prompt("Create an artifact importing an external file");

@@ -507,11 +507,11 @@ try {
 	const docsCode = `import { MarkdownDocuments } from "@/components/blocks";
 		import icon from "./icon.svg";
 		const documents = [
-			{ path: "index.md", title: "Overview", content: "# Overview\\n\\n![Diagram](images/icon.svg)\\n\\n[Read design](docs/%E8%A8%AD%E8%A8%88.md)\\n\\n[Read details](docs/%E8%A8%AD%E8%A8%88.md#details)\\n\\n[Japanese section](docs/%E8%A8%AD%E8%A8%88.md#${encodeURIComponent("か\u3099")})\\n\\n[Second repeated section](docs/%E8%A8%AD%E8%A8%88.md#repeat-1)\\n\\n[Missing section](docs/%E8%A8%AD%E8%A8%88.md#absent)\\n\\n[Special](docs/plan%231%3F.md)\\n\\n[Missing](missing.md)\\n\\n[Missing Japanese](docs/${encodeURIComponent("未収録.md")})\\n\\n[Website](https://example.com)" },
+			{ path: "index.md", title: "Overview", content: "# Overview\\n\\n![Diagram](images/icon.svg)\\n\\n![Special diagram](images/icon%231%3F.svg)\\n\\n[Read design](docs/%E8%A8%AD%E8%A8%88.md)\\n\\n[Read details](docs/%E8%A8%AD%E8%A8%88.md#details)\\n\\n[Japanese section](docs/%E8%A8%AD%E8%A8%88.md#${encodeURIComponent("か\u3099")})\\n\\n[Second repeated section](docs/%E8%A8%AD%E8%A8%88.md#repeat-1)\\n\\n[Missing section](docs/%E8%A8%AD%E8%A8%88.md#absent)\\n\\n[Special](docs/plan%231%3F.md)\\n\\n[Missing](missing.md)\\n\\n[Missing Japanese](docs/${encodeURIComponent("未収録.md")})\\n\\n[Website](https://example.com)" },
 			{ path: "docs/設計.md", title: "Design " + "x".repeat(120), content: "# Design document\\n\\n![Nested diagram](../images/icon.svg)\\n\\n## Details\\n\\n## か\u3099\\n\\n## Repeat\\n\\n## Repeat\\n\\n[Return](../index.md)" },
 			{ path: "docs/plan#1?.md", title: "Special", content: "# Special document\\n\\n[Return](../index.md)" },
 		];
-		export default function Documents() { return <MarkdownDocuments documents={documents} assets={{ "images/icon.svg": icon }} />; }`;
+		export default function Documents() { return <MarkdownDocuments documents={documents} assets={{ "images/icon.svg": icon, "images/icon#1?.svg": icon }} />; }`;
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "markdown-documents", title: "Documents", code: docsCode })), fauxAssistantMessage("ok")]);
 	await first.prompt("Create linked Markdown documents");
 	const docsWrite = first.lastResult("artifact_write");
@@ -521,6 +521,7 @@ try {
 	await docsPage.goto(openLink(docsWrite.text));
 	await docsPage.getByRole("heading", { name: "Overview" }).waitFor();
 	await docsPage.waitForFunction(() => (document.querySelector('img[alt="Diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);
+	await docsPage.waitForFunction(() => (document.querySelector('img[alt="Special diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);
 	if (await docsPage.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error("Markdown document selector overflows a narrow viewport");
 	await docsPage.getByLabel("Document", { exact: true }).selectOption("docs/設計.md");
 	await docsPage.getByRole("heading", { name: "Design document" }).waitFor();
@@ -561,6 +562,7 @@ try {
 	docsOffline.on("request", (request) => { if (!/^(file|data|blob):/.test(request.url())) docsRequests.push(request.url()); });
 	await docsOffline.goto(pathToFileURL(join(first.cwd, "markdown-documents.html")).href);
 	await docsOffline.waitForFunction(() => (document.querySelector('img[alt="Diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);
+	await docsOffline.waitForFunction(() => (document.querySelector('img[alt="Special diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);
 	await docsOffline.getByRole("button", { name: "Read design" }).click();
 	await docsOffline.getByRole("heading", { name: "Design document" }).waitFor();
 	await docsOffline.waitForFunction(() => (document.querySelector('img[alt="Nested diagram"]') as HTMLImageElement | null)?.naturalWidth === 4);

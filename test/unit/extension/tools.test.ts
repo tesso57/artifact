@@ -437,6 +437,7 @@ describe("daemon compatibility", () => {
 		["0.4.5", "Markdown image mapping"],
 		["0.4.6", "missing Markdown image feedback"],
 		["0.4.7", "Windows stylesheet refresh"],
+		["0.4.8", "non-expiring unused links"],
 	])("does not reuse a %s viewer without %s", (version) => {
 		expect(compatible({ protocol: PROTOCOL_VERSION, version })).toBe(false);
 	});

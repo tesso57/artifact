@@ -43,8 +43,6 @@ function localPath(next: string): string {
 
 /** A browser session (cookie) lasts this long; the daemon's restart also ends it. */
 const BROWSER_SESSION_TTL_MS = 7 * 24 * 3600_000;
-/** Open links (one-time tokens in URLs given to people) stay valid this long. */
-const LINK_TTL_MS = 30 * 60_000;
 /** A page that pinged within this window counts as open (background tabs are throttled to ~1/min). */
 const VIEWING_TTL_MS = 90_000;
 
@@ -68,8 +66,8 @@ export class DaemonContext {
 	lastActivity = performance.now();
 	/** Set by the daemon entry: how `/__pi/api/shutdown` stops it (works on Windows too). */
 	onShutdown: () => void = () => process.exit(0);
-	/** One-time login tokens (in links given to people) → expiry and where they lead. */
-	private links = new Map<string, { exp: number; next: string }>();
+	/** Unused one-time login tokens and their local destinations. */
+	private links = new Map<string, { next: string }>();
 	/** Used tokens → destination, so a signed-in browser clicking a link again still gets there. */
 	private spentLinks = new Map<string, { exp: number; next: string }>();
 	/** Browser sessions (cookie values) → expiry. Distinct from the API secret. */
@@ -107,7 +105,7 @@ export class DaemonContext {
 		this.lastActivity = performance.now();
 	}
 
-	/** Keep unused links alive for their advertised lifetime even when pi has disconnected. */
+	/** Keep the viewer alive while an unused link is waiting to be opened. */
 	isIdle(idleMs: number): boolean {
 		const now = performance.now();
 		this.pruneLinks(now);
@@ -122,15 +120,15 @@ export class DaemonContext {
 	}
 
 	private pruneLinks(now = performance.now()) {
-		for (const map of [this.links, this.spentLinks]) for (const [t, l] of map) if (l.exp < now) map.delete(t);
+		for (const [t, l] of this.spentLinks) if (l.exp < now) this.spentLinks.delete(t);
 	}
 
 	/** Use up a token (if still unused) and return where it leads. */
-	private spend(token: string): { exp: number; next: string } | undefined {
+	private spend(token: string): { next: string } | undefined {
 		const link = this.links.get(token);
 		if (!link) return undefined;
 		this.links.delete(token);
-		this.spentLinks.set(token, link);
+		this.spentLinks.set(token, { ...link, exp: performance.now() + BROWSER_SESSION_TTL_MS });
 		return link;
 	}
 
@@ -141,7 +139,7 @@ export class DaemonContext {
 	link(next = "/"): string {
 		this.pruneLinks();
 		const token = randomBytes(18).toString("base64url");
-		this.links.set(token, { exp: performance.now() + LINK_TTL_MS, next: localPath(next) });
+		this.links.set(token, { next: localPath(next) });
 		return `${this.origin}/__pi/login?t=${token}`;
 	}
 

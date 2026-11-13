@@ -103,7 +103,7 @@ function unauthorized(res: ServerResponse) {
 	res.setHeader("content-type", "text/html; charset=utf-8");
 	res.end(
 		`<!doctype html><meta charset="utf-8"><title>pi artifacts</title><body style="font:14px system-ui;padding:3rem;max-width:40rem">` +
-			`<h1 style="font-size:1.25rem">Open this from pi</h1><p>The artifact viewer only accepts links created by pi (they expire after 30 minutes). Run <code>/artifacts</code> in pi, or ask the agent for a new link.</p>`,
+			`<h1 style="font-size:1.25rem">Open this from pi</h1><p>The artifact viewer only accepts links created by pi (unused links remain valid while the viewer runs). Run <code>/artifacts</code> in pi, or ask the agent for a new link.</p>`,
 	);
 }
 

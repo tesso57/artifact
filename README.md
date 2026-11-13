@@ -51,8 +51,11 @@ Or from a checkout: `npm install`, then `pi install ./` (or `pi -e ./` to try it
 Ask pi something like _"make an artifact that charts my open GitHub issues per label"_.
 The agent loads the `artifacts` skill, starts from a template and calls `artifact_write`,
 which prints an **Open** link. It signs a browser on the same machine in to the local
-viewer, works once, and expires after 30 minutes. If it has already been used or expired,
-ask pi for a fresh link with `artifact_link`, or use `/artifacts` to open it again.
+viewer and works once. It stays valid until used or the viewer restarts. If it has
+already been used or the viewer restarted, ask pi for a fresh link with `artifact_link`,
+or use `/artifacts` to open it again. An unused link keeps the viewer running: use
+`/artifacts stop` to stop the viewer and invalidate outstanding links. Treat links as
+credentials, since anyone with an unused link on the same machine can sign in.
 For someone on another machine, export a single HTML file instead; it includes the
 snapshotted memory and MCP results reported by the export tool, so review them before sharing.
 
@@ -223,8 +226,8 @@ sequenceDiagram
 What is protected:
 
 - **Other programs and websites.** The viewer listens on 127.0.0.1. Browsers get in only
-  through an Open link: a one-time token (30 minutes) that becomes a random session
-  cookie (HttpOnly, SameSite=Strict) — never the daemon's secret. The extension's API
+  through an Open link: a one-time token valid until used or the viewer restarts. It becomes
+  a random session cookie (HttpOnly, SameSite=Strict) — never the daemon's secret. The extension's API
   (`/__pi/api`) only takes the secret header (state file is `0600`, state folder `0700`).
   State-changing browser requests must be same-origin, and Vite's editor endpoint is
   blocked.

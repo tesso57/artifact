@@ -64,19 +64,20 @@ describe("guard", () => {
 			expect(notify).toHaveBeenCalledWith("delete-notification");
 		} finally { notify.mockRestore(); }
 	});
-	it("keeps an unused link available until its advertised expiry even after idle timeout", () => {
+	it("keeps unused links valid beyond 30 minutes and until the viewer restarts", () => {
 		const clock = vi.spyOn(performance, "now").mockReturnValue(0);
 		const memory = new Memory(":memory:");
 		try {
 			const isolated = new DaemonContext("test", memory);
 			const token = new URL(isolated.link("/a/x")).searchParams.get("t");
-			clock.mockReturnValue(16 * 60_000);
+			clock.mockReturnValue(365 * 24 * 60 * 60_000);
 			expect(isolated.isIdle(15 * 60_000)).toBe(false);
 			expect(isolated.login(token)?.next).toBe("/a/x");
+			expect(isolated.login(token)).toBeUndefined();
 			expect(isolated.isIdle(15 * 60_000)).toBe(true);
-			isolated.link("/a/y");
-			clock.mockReturnValue(47 * 60_000);
-			expect(isolated.isIdle(15 * 60_000)).toBe(true);
+			const other = new DaemonContext("test", memory);
+			const pending = new URL(isolated.link("/a/y")).searchParams.get("t");
+			expect(other.login(pending)).toBeUndefined();
 		} finally {
 			clock.mockRestore();
 			memory.close();

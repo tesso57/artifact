@@ -332,7 +332,7 @@ export class DaemonClient {
 		return json;
 	}
 
-	/** A login link for the browser that opens `next` (expires after 30 minutes). */
+	/** A one-use login link for the browser that opens `next` while the viewer is running. */
 	async link(next = "/"): Promise<string> {
 		return (await this.api<{ url: string }>("/link", { next })).url;
 	}

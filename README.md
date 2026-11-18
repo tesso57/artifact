@@ -97,11 +97,15 @@ For `/artifacts export`, the text after the ID is the file path; spaces do not r
 | Variable | |
 |---|---|
 | `PI_ARTIFACTS_DIR` | root folder (default `<project>/.pi/_artifacts`); also `PI_ARTIFACTS_TEMPLATES`, `PI_ARTIFACTS_DESIGN`, `PI_ARTIFACTS_STATE`, `PI_ARTIFACTS_DB`, `PI_ARTIFACTS_RUNTIME` |
-
 | `PI_ARTIFACTS_PORT` | first port to try (default 5178) |
 | `PI_ARTIFACTS_IDLE_MS` | the daemon exits after this long without sessions or requests, once no unused links remain (default 15 min) |
 | `PI_ARTIFACTS_MCP_APPROVAL` | `allow` or `deny` MCP tools that are not read-only without asking (default: ask; deny without a UI) |
 | `PI_ARTIFACTS_NODE` | Node binary for the daemon (when pi runs as a Bun binary without `node` on PATH) |
+
+The default project is the nearest Git repository root, including worktrees and nested
+repositories. Outside Git, the nearest `.pi` directory is used, or the working directory
+when there is none. The original working directory is still recorded on each artifact.
+Relative paths explicitly set through `PI_ARTIFACTS_*` resolve from that working directory.
 
 Legacy artifacts are not moved automatically. To copy one artifact whose metadata identifies
 its project, run `node scripts/migrate-artifact.mjs <id> <project> [legacy-root]` first to
@@ -111,7 +115,6 @@ and copies only that artifact and the shared keys it referenced. If `PI_ARTIFACT
 pointed to a non-default legacy database, migrate that database separately after inspection.
 Stop the source and destination viewers while migrating so a concurrent edit is not missed.
 The private daemon state is outside `_artifacts` so its guard write grant does not expose it.
-
 
 If an artifact or template directory contains `#`, `?`, or `%`, the viewer uses private
 temporary directory links to support relative imports. If the operating system prevents

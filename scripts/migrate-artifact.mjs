@@ -4,7 +4,7 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readF
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { artifactsDir, memoryDbPath, stateDir } from "../shared/paths.ts";
+import { artifactsDir, memoryDbPath, projectRoot, stateDir } from "../shared/paths.ts";
 import { assertArtifactId } from "../shared/ids.ts";
 
 const [id, projectArg, ...rest] = process.argv.slice(2);
@@ -12,11 +12,11 @@ const sourceArg = rest.find((arg) => !arg.startsWith("--"));
 const options = rest.filter((arg) => arg.startsWith("--"));
 if (!id || !projectArg || options.some((arg) => arg !== "--apply")) throw new Error("Usage: node scripts/migrate-artifact.mjs <id> <project> [legacy-root] [--apply]");
 assertArtifactId(id);
-const project = realpathSync(resolve(projectArg));
+const project = realpathSync(projectRoot(resolve(projectArg)));
 const sourceRoot = resolve(sourceArg || join(homedir(), ".pi", "artifacts"));
 const source = join(sourceRoot, id);
 const meta = JSON.parse(readFileSync(join(source, "meta.json"), "utf8"));
-if (meta.id !== id || !meta.cwd || realpathSync(meta.cwd) !== project) throw new Error("Artifact metadata does not establish membership in the requested project");
+if (meta.id !== id || !meta.cwd || realpathSync(projectRoot(meta.cwd)) !== project) throw new Error("Artifact metadata does not establish membership in the requested project");
 const targetRoot = artifactsDir(project);
 const stateRoot = stateDir(project);
 const target = join(targetRoot, id);

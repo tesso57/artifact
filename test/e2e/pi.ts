@@ -28,12 +28,12 @@ interface TestSession {
 	close(): Promise<void>;
 }
 
-export async function startPi(): Promise<TestSession> {
+export async function startPi(requestedCwd?: string): Promise<TestSession> {
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-agent-"));
-	const cwd = mkdtempSync(join(tmpdir(), "pi-cwd-"));
+	const cwd = requestedCwd ?? mkdtempSync(join(tmpdir(), "pi-cwd-"));
 	const cleanup = () => {
 		rmSync(agentDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-		rmSync(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+		if (!requestedCwd) rmSync(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 	};
 	let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
 	try {

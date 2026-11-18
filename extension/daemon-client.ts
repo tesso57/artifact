@@ -13,7 +13,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { performance } from "node:perf_hooks";
 import { nodeBinary, nodeTsFlags, resolvePhysicalPath, runtimeNeedsPreserveSymlinks } from "../shared/node.ts";
-import { artifactsDir, daemonStatePath, PACKAGE_ROOT, runtimeDir, stateDir } from "../shared/paths.ts";
+import { artifactsDir, daemonStatePath, PACKAGE_ROOT, projectRoot, runtimeDir, stateDir } from "../shared/paths.ts";
 import { compareVersions, DAEMON_SECRET_HEADER, type DaemonState, PROTOCOL_VERSION } from "../shared/protocol.ts";
 import { LEGACY_LOCK_EXIT_CODE, readLockOwner } from "../shared/daemon-lock.ts";
 
@@ -253,7 +253,7 @@ export class DaemonClient {
 
 	private async spawn(): Promise<DaemonState> {
 		mkdirSync(stateDir(this.cwd), { recursive: true, mode: 0o700 });
-		if (stateDir(this.cwd) === join(this.cwd, ".pi", "_artifacts-state")) {
+		if (stateDir(this.cwd) === join(projectRoot(this.cwd), ".pi", "_artifacts-state")) {
 			try { writeFileSync(join(stateDir(this.cwd), ".gitignore"), "*\n", { flag: "wx", mode: 0o600 }); }
 			catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
 		}

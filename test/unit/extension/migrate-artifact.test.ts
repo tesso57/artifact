@@ -10,8 +10,8 @@ it("copies only the verified artifact and its referenced memory without changing
  const base=mkdtempSync(join(tmpdir(),"artifact-migrate-"));
  const project=join(base,"project"), other=join(base,"other"), legacy=join(base,"legacy");
  const source=join(legacy,"item");
- mkdirSync(project); mkdirSync(other); mkdirSync(source,{recursive:true});
- writeFileSync(join(source,"meta.json"), JSON.stringify({id:"item",cwd:project,title:"test"}));
+ mkdirSync(join(project,".git"),{recursive:true}); mkdirSync(join(project,"sub")); mkdirSync(other); mkdirSync(source,{recursive:true});
+ writeFileSync(join(source,"meta.json"), JSON.stringify({id:"item",cwd:join(project,"sub"),title:"test"}));
  writeFileSync(join(source,"index.tsx"),"export default 1;");
  const dbPath=join(legacy,".state","memory.sqlite");
  const memory=new Memory(dbPath);
@@ -22,7 +22,7 @@ it("copies only the verified artifact and its referenced memory without changing
  const run=(dir:string,apply:boolean)=>execFileSync(process.execPath,["--no-warnings",resolve("scripts/migrate-artifact.mjs"),"item",dir,legacy,...(apply?["--apply"]:[])],{env,encoding:"utf8",stdio:["ignore","pipe","pipe"]});
  try {
   expect(()=>run(other,true)).toThrow();
-  expect(JSON.parse(run(project,false)).counts).toMatchObject({memory:1,reads:1,shared:1});
+  expect(JSON.parse(run(join(project,"sub"),false)).counts).toMatchObject({memory:1,reads:1,shared:1});
   const targetDb=join(project,".pi/_artifacts-state/memory.sqlite");
   const existing=new Memory(targetDb); existing.set("shared","used","different"); existing.close();
   expect(()=>run(project,true)).toThrow();

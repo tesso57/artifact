@@ -1,3 +1,5 @@
+import { existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,15 +9,26 @@ export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..
 /** Templates shipped with the artifacts skill. */
 export const BUNDLED_TEMPLATES_DIR = join(PACKAGE_ROOT, "skills", "artifacts", "templates");
 
+/** Match project notes: a Git root (including a worktree .git file), or a local .pi root. */
+export function projectRoot(cwd = process.cwd()): string {
+	const start = resolve(cwd);
+	let piRoot: string | undefined;
+	for (let dir = start; dir !== homedir() && dirname(dir) !== dir; dir = dirname(dir)) {
+		if (existsSync(join(dir, ".git"))) return dir;
+		if (!piRoot && statSync(join(dir, ".pi"), { throwIfNoEntry: false })?.isDirectory()) piRoot = dir;
+	}
+	return piRoot ?? start;
+}
+
 /** Per-project artifacts, unless an explicit root is configured. */
 export function artifactsDir(cwd = process.cwd()): string {
-	return process.env.PI_ARTIFACTS_DIR ? resolve(cwd, process.env.PI_ARTIFACTS_DIR) : resolve(cwd, ".pi", "_artifacts");
+	return process.env.PI_ARTIFACTS_DIR ? resolve(cwd, process.env.PI_ARTIFACTS_DIR) : resolve(projectRoot(cwd), ".pi", "_artifacts");
 }
 
 /** Daemon state (lock file, logs, SQLite) — never served or scanned. */
 export function stateDir(cwd = process.cwd()): string {
 	if (process.env.PI_ARTIFACTS_STATE) return resolve(cwd, process.env.PI_ARTIFACTS_STATE);
-	return process.env.PI_ARTIFACTS_DIR ? join(artifactsDir(cwd), ".state") : resolve(cwd, ".pi", "_artifacts-state");
+	return process.env.PI_ARTIFACTS_DIR ? join(artifactsDir(cwd), ".state") : resolve(projectRoot(cwd), ".pi", "_artifacts-state");
 }
 
 /** Copies of the daemon's sources when the package is installed inside node_modules. */

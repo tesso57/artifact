@@ -9,7 +9,7 @@ const REGISTRATION_TIMEOUT_MS = 5_000;
 
 /**
  * Per-session state: this session's MCP bridge and its registration with the shared viewer
- * daemon. The daemon outlives sessions (it serves every pi session of the user and stops
+ * daemon. The daemon outlives sessions (it serves pi sessions in the same project and stops
  * itself when idle), so `session_shutdown` only unregisters.
  */
 export class ArtifactsRuntime {
@@ -41,6 +41,7 @@ export class ArtifactsRuntime {
 
 	/** Remember the UI context for status updates and approvals. */
 	attach(ctx: ExtensionContext): void {
+		this.daemon.setProject(ctx.cwd);
 		this.ui = ctx;
 		try {
 			this.sessionId = ctx.sessionManager.getSessionId() || this.sessionId;

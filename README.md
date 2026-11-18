@@ -12,7 +12,7 @@ link that hot-reloads as the agent iterates.
 
 <sub>Two of the bundled templates, as the viewer renders them. The [style guide](docs/images/style-guide-light.png) shows every token and component.</sub>
 
-- **One viewer, many artifacts** — a per-user daemon runs a single TanStack Start (Vite)
+- **One viewer, many artifacts** — a per-project daemon runs a single TanStack Start (Vite)
   dev server; every artifact is a route (`/a/<id>`) with HMR. No iframes: artifacts are
   real modules.
 - **shadcn/ui + TanStack** — shadcn/ui components plus blocks that compose them with
@@ -65,7 +65,7 @@ snapshotted memory and MCP results reported by the export tool, so review them b
 | `/artifacts <id>` | open one artifact |
 | `/artifacts export <id> [file.html]` | export as one self-contained HTML file |
 | `/artifacts delete <id>` | delete an artifact, its files and its memory |
-| `/artifacts stop` | stop the viewer (for all pi sessions) |
+| `/artifacts stop` | stop the viewer for this project (all its pi sessions) |
 
 For `/artifacts export`, the text after the ID is the file path; spaces do not require shell quoting.
 
@@ -87,20 +87,31 @@ For `/artifacts export`, the text after the ID is the file path; spaces do not r
 
 | Path | |
 |---|---|
-| `~/.pi/artifacts/<id>/{index.tsx,meta.json}` | artifacts |
-| `~/.pi/artifacts/.templates/<name>/` | your templates |
-| `~/.pi/artifacts/.design/{theme.css,DESIGN.md}` | your design system |
-| `~/.pi/artifacts/.state/` | daemon state: `memory.sqlite`, `viewer.json` (port, secret), `viewer.log` — never served |
-| `~/.pi/artifacts/.runtime/` | daemon sources copied out of `node_modules` for npm installs |
-| `~/.pi/artifacts/.vite-cache/` | generated viewer dependency caches, isolated by daemon state directory |
+| `<project>/.pi/_artifacts/<id>/{index.tsx,meta.json}` | artifacts |
+| `<project>/.pi/_artifacts/.templates/<name>/` | your templates |
+| `<project>/.pi/_artifacts/.design/{theme.css,DESIGN.md}` | your design system |
+| `<project>/.pi/_artifacts-state/` | daemon state: `memory.sqlite`, `viewer.json` (port, secret), `viewer.log` — never served |
+| `<project>/.pi/_artifacts-state/runtime/` | daemon sources copied out of `node_modules` for npm installs |
+| `<project>/.pi/_artifacts/.vite-cache/` | generated viewer dependency caches, isolated by daemon state directory |
 
 | Variable | |
 |---|---|
-| `PI_ARTIFACTS_DIR` | root folder (default `~/.pi/artifacts`); also `PI_ARTIFACTS_TEMPLATES`, `PI_ARTIFACTS_DESIGN`, `PI_ARTIFACTS_STATE`, `PI_ARTIFACTS_DB`, `PI_ARTIFACTS_RUNTIME` |
+| `PI_ARTIFACTS_DIR` | root folder (default `<project>/.pi/_artifacts`); also `PI_ARTIFACTS_TEMPLATES`, `PI_ARTIFACTS_DESIGN`, `PI_ARTIFACTS_STATE`, `PI_ARTIFACTS_DB`, `PI_ARTIFACTS_RUNTIME` |
+
 | `PI_ARTIFACTS_PORT` | first port to try (default 5178) |
 | `PI_ARTIFACTS_IDLE_MS` | the daemon exits after this long without sessions or requests, once no unused links remain (default 15 min) |
 | `PI_ARTIFACTS_MCP_APPROVAL` | `allow` or `deny` MCP tools that are not read-only without asking (default: ask; deny without a UI) |
 | `PI_ARTIFACTS_NODE` | Node binary for the daemon (when pi runs as a Bun binary without `node` on PATH) |
+
+Legacy artifacts are not moved automatically. To copy one artifact whose metadata identifies
+its project, run `node scripts/migrate-artifact.mjs <id> <project> [legacy-root]` first to
+inspect a dry run, then repeat with `--apply`. The default legacy root is `~/.pi/artifacts`.
+The script retains the original, rejects existing destinations and conflicting shared values,
+and copies only that artifact and the shared keys it referenced. If `PI_ARTIFACTS_DB`
+pointed to a non-default legacy database, migrate that database separately after inspection.
+Stop the source and destination viewers while migrating so a concurrent edit is not missed.
+The private daemon state is outside `_artifacts` so its guard write grant does not expose it.
+
 
 If an artifact or template directory contains `#`, `?`, or `%`, the viewer uses private
 temporary directory links to support relative imports. If the operating system prevents
@@ -187,7 +198,7 @@ flowchart LR
     ctx --> worker
   end
 
-  files[("~/.pi/artifacts")]
+  files[("<project>/.pi/_artifacts")]
   browser["browser<br/>cookie session · CSP"]
 
   extA -- "write · memory · export" --> api

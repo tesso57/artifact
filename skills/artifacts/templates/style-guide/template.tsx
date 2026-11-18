@@ -1,6 +1,6 @@
 /**
  * Template: style guide — renders the design system's tokens and components so a
- * theme change (~/.pi/artifacts/.design/theme.css) can be reviewed in one place.
+ * theme change (<project>/.pi/_artifacts/.design/theme.css) can be reviewed in one place.
  */
 import { Bell, Inbox } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";

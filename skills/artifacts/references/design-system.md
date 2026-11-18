@@ -1,8 +1,8 @@
 # Design system (defaults)
 
-The defaults below apply unless `~/.pi/artifacts/.design/DESIGN.md` says otherwise.
+The defaults below apply unless `<project>/.pi/_artifacts/.design/DESIGN.md` says otherwise.
 Tokens are CSS variables (shadcn naming) defined in the viewer's `styles.css` and may be
-overridden in `~/.pi/artifacts/.design/theme.css`; use them through Tailwind classes.
+overridden in `<project>/.pi/_artifacts/.design/theme.css`; use them through Tailwind classes.
 
 ## Principles
 

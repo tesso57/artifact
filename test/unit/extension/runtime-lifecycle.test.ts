@@ -78,7 +78,7 @@ it("waits for a background re-registration before unregistering", async () => {
 	});
 	try {
 		await runtime.connect();
-		runtime.captureToolContext({ executeTool: async () => ({}), sessionManager: { getSessionId: () => runtime.id } } as never);
+		runtime.captureToolContext({ cwd: process.cwd(), executeTool: async () => ({}), sessionManager: { getSessionId: () => runtime.id } } as never);
 		await requestStarted;
 		const closing = runtime.shutdown();
 		await new Promise<void>((resolve) => setImmediate(resolve));

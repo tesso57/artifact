@@ -7,7 +7,7 @@ description: Change and maintain the design system all artifacts share — brand
 
 Two files in the design folder customise every artifact, the viewer and HTML exports.
 `artifact_template` `list` returns its path as `designDir` (usually
-`~/.pi/artifacts/.design/`; create it if missing):
+`<project>/.pi/_artifacts/.design/`; create it if missing):
 
 - `theme.css` — CSS overrides of the shadcn tokens, loaded after the defaults, so
   redefining a variable wins. The viewer reloads when it changes. Plain CSS only (no

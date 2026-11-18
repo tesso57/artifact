@@ -1,19 +1,19 @@
 /**
- * Finds or starts the per-user viewer daemon and talks to its HTTP API.
+ * Finds or starts the per-project viewer daemon and talks to its HTTP API.
  *
  * When this package is installed inside a node_modules folder (npm installs), Node will not
  * run its TypeScript and Vite plugins skip it, so the daemon's sources are copied to
- * `~/.pi/artifacts/.runtime/<version>` first, with links back to the installed dependencies.
+ * the project runtime directory first, with links back to the installed dependencies.
  */
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { chmodSync, closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { chmodSync, closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { performance } from "node:perf_hooks";
 import { nodeBinary, nodeTsFlags, resolvePhysicalPath, runtimeNeedsPreserveSymlinks } from "../shared/node.ts";
-import { daemonStatePath, PACKAGE_ROOT, runtimeDir, stateDir } from "../shared/paths.ts";
+import { artifactsDir, daemonStatePath, PACKAGE_ROOT, projectRoot, runtimeDir, stateDir } from "../shared/paths.ts";
 import { compareVersions, DAEMON_SECRET_HEADER, type DaemonState, PROTOCOL_VERSION } from "../shared/protocol.ts";
 import { LEGACY_LOCK_EXIT_CODE, readLockOwner } from "../shared/daemon-lock.ts";
 
@@ -23,9 +23,9 @@ export class ViewerNotRunningError extends Error {
 	constructor() { super("The artifact viewer is not running"); }
 }
 
-function readState(): DaemonState | undefined {
+function readState(cwd: string): DaemonState | undefined {
 	try {
-		return JSON.parse(readFileSync(daemonStatePath(), "utf8")) as DaemonState;
+		return JSON.parse(readFileSync(daemonStatePath(cwd), "utf8")) as DaemonState;
 	} catch {
 		return undefined;
 	}
@@ -47,9 +47,9 @@ export function compatible(h: Health | undefined): boolean {
 	return isHealth(h) && h.protocol === PROTOCOL_VERSION && compareVersions(h.version, PACKAGE_VERSION) >= 0;
 }
 
-function lockOwnerAlive(): boolean {
+function lockOwnerAlive(cwd: string): boolean {
 	try {
-		const pid = readLockOwner(join(stateDir(), "viewer.lock"));
+		const pid = readLockOwner(join(stateDir(cwd), "viewer.lock"));
 		if (!pid) return false;
 		process.kill(pid, 0);
 		return true;
@@ -96,8 +96,8 @@ function enclosingNodeModules(root: string): string | undefined {
 const RUNTIME_PARTS = ["viewer", "shared", "package.json", "tsconfig.base.json", join("skills", "artifacts", "templates")];
 
 /** Vite cannot load its own runtime from a directory containing URL delimiters. */
-function usableRuntimeDir(): string {
-	const configured = resolve(runtimeDir());
+function usableRuntimeDir(cwd: string): string {
+	const configured = resolve(runtimeDir(cwd));
 	const physical = resolvePhysicalPath(configured);
 	if (!/[#?%]/.test(configured) && !/[#?%]/.test(physical)) return configured;
 	const identity = `${process.getuid?.() ?? homedir()}\0${configured}\0${physical}`;
@@ -146,7 +146,7 @@ function sourceStamp(root: string, dependencyRoot: string): string {
 }
 
 /** Directory to run the daemon from (the package itself, or a runtime copy). */
-export function runtimeRoot(root = PACKAGE_ROOT): string {
+export function runtimeRoot(root = PACKAGE_ROOT, cwd = process.cwd()): string {
 	const physicalRoot = resolvePhysicalPath(root);
 	const hoisted = enclosingNodeModules(physicalRoot) ?? enclosingNodeModules(root);
 	if (!hoisted && !/[#?%]/.test(root) && !/[#?%]/.test(physicalRoot)) return root;
@@ -159,7 +159,7 @@ export function runtimeRoot(root = PACKAGE_ROOT): string {
 		}
 	}
 	const stamp = sourceStamp(root, dependencies);
-	const runtimeBase = usableRuntimeDir();
+	const runtimeBase = usableRuntimeDir(cwd);
 	const target = join(runtimeBase, stamp);
 	if (existsSync(target)) {
 		if (existsSync(join(target, ".ready"))) return target;
@@ -193,6 +193,13 @@ export function runtimeRoot(root = PACKAGE_ROOT): string {
 }
 
 export class DaemonClient {
+	private cwd = process.cwd();
+	setProject(cwd: string): void {
+		const next = resolve(cwd);
+		if ((this.starting || this.state) && next !== this.cwd) throw new Error("Cannot change artifact project while a viewer is connected");
+		this.cwd = next;
+	}
+	get artifactsRoot(): string { return artifactsDir(this.cwd); }
 	private state: DaemonState | undefined;
 	private starting: Promise<DaemonState> | undefined;
 	/** Called after this client started a new daemon (the session re-registers right away). */
@@ -204,7 +211,7 @@ export class DaemonClient {
 
 	/** Whether a usable daemon is already running (never starts one). */
 	async running(): Promise<boolean> {
-		const state = readState();
+		const state = readState(this.cwd);
 		if (!state || !compatible(await healthy(state))) return false;
 		this.state = state;
 		return true;
@@ -219,7 +226,7 @@ export class DaemonClient {
 	}
 
 	private async connect(): Promise<DaemonState> {
-		const existing = readState();
+		const existing = readState(this.cwd);
 		if (existing) {
 			const health = await healthy(existing);
 			if (compatible(health)) return (this.state = existing);
@@ -234,8 +241,8 @@ export class DaemonClient {
 		}
 		// A daemon that holds the lock but is not answering yet (starting, or busy): wait for it
 		// rather than racing it with a second spawn.
-		for (let i = 0; i < 100 && lockOwnerAlive(); i++) {
-			const state = readState();
+		for (let i = 0; i < 100 && lockOwnerAlive(this.cwd); i++) {
+			const state = readState(this.cwd);
 			if (state && compatible(await healthy(state))) return (this.state = state);
 			await new Promise((r) => setTimeout(r, 200));
 		}
@@ -245,12 +252,19 @@ export class DaemonClient {
 	}
 
 	private async spawn(): Promise<DaemonState> {
-		mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
-		const root = runtimeRoot();
-		const logFile = join(stateDir(), "viewer.log");
+		mkdirSync(stateDir(this.cwd), { recursive: true, mode: 0o700 });
+		if (stateDir(this.cwd) === join(projectRoot(this.cwd), ".pi", "_artifacts-state")) {
+			try { writeFileSync(join(stateDir(this.cwd), ".gitignore"), "*\n", { flag: "wx", mode: 0o600 }); }
+			catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+		}
+		const root = runtimeRoot(PACKAGE_ROOT, this.cwd);
+		const logFile = join(stateDir(this.cwd), "viewer.log");
 		const log = openSync(logFile, "a", 0o600);
 		const bin = nodeBinary();
-		const environment: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "development", FORCE_COLOR: "0" };
+		const environment: NodeJS.ProcessEnv = { ...process.env, PI_ARTIFACTS_DIR: this.artifactsRoot, PI_ARTIFACTS_STATE: stateDir(this.cwd), PI_ARTIFACTS_RUNTIME: runtimeDir(this.cwd), NODE_ENV: "development", FORCE_COLOR: "0" };
+		for (const key of ["PI_ARTIFACTS_STATE", "PI_ARTIFACTS_RUNTIME", "PI_ARTIFACTS_DB", "PI_ARTIFACTS_TEMPLATES", "PI_ARTIFACTS_DESIGN"] as const) {
+			if (environment[key]) environment[key] = resolve(this.cwd, environment[key]);
+		}
 		if (root !== PACKAGE_ROOT) environment.PI_ARTIFACTS_RUNTIME = dirname(root);
 		const child = (() => {
 			try {
@@ -268,13 +282,13 @@ export class DaemonClient {
 		child.unref();
 		const deadline = performance.now() + 60_000;
 		while (performance.now() < deadline) {
-			const state = readState();
+			const state = readState(this.cwd);
 			if (state && compatible(await healthy(state))) return state;
 			if (spawnError) throw new Error(`Could not start the artifact viewer with ${bin}: ${spawnError.message}`, { cause: spawnError });
 			if (child.exitCode === LEGACY_LOCK_EXIT_CODE) break;
 			// Our daemon may have exited because another session's daemon holds the lock and is
 			// still starting: keep waiting while that owner lives.
-			if (child.exitCode !== null && !lockOwnerAlive() && !readState()) break;
+			if (child.exitCode !== null && !lockOwnerAlive(this.cwd) && !readState(this.cwd)) break;
 			await new Promise((r) => setTimeout(r, 200));
 		}
 		const tail = (() => {
@@ -299,7 +313,7 @@ export class DaemonClient {
 		if (start) state = await waitForStartup(this.ensure(), beforeSendSignal);
 		else {
 			// Background calls re-read the state file: a replacement daemon has a new secret.
-			const current = readState();
+			const current = readState(this.cwd);
 			if (!current) throw new ViewerNotRunningError();
 			state = this.state = current;
 		}

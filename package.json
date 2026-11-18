@@ -1,6 +1,6 @@
 {
   "name": "pi-artifacts",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "description": "Live React artifacts for the pi coding agent: shadcn/ui + TanStack, SQLite memory, MCP access, single-file HTML export, skills and templates",
   "license": "MIT",
   "type": "module",
@@ -33,6 +33,7 @@
     "viewer/tsconfig.json",
     "tsconfig.base.json",
     "docs/images",
+    "scripts/migrate-artifact.mjs",
     "README.md",
     "LICENSE"
   ],
@@ -43,6 +44,7 @@
     "knip": "knip",
     "check:templates": "node test/e2e/check-templates.ts",
     "test:e2e": "node test/e2e/run.ts",
+    "test:projects": "node --no-warnings test/e2e/project-scope.ts && node --no-warnings test/e2e/project-pi.ts && node --no-warnings test/e2e/project-nested.ts",
     "test:pack": "node test/e2e/pack.ts",
     "check:package": "node scripts/check-package.mjs"
   },

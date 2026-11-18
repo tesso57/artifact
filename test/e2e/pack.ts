@@ -27,6 +27,13 @@ try {
 		env: { ...process.env, PI_ARTIFACTS_PACKAGE: installed, PI_ARTIFACTS_PORT: "5430" },
 	});
 	process.exitCode = run.status ?? 1;
+	if (process.exitCode === 0) {
+		const projects = spawnSync(process.execPath, [join(root, "test/e2e/project-nested.ts")], {
+			stdio: "inherit",
+			env: { ...process.env, PI_ARTIFACTS_PACKAGE: installed },
+		});
+		process.exitCode = projects.status ?? 1;
+	}
 } finally {
 	rmSync(work, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 }

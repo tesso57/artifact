@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { artifactsDir } from "../shared/paths.ts";
 import type { ArtifactMeta } from "../shared/protocol.ts";
 import { openInBrowser } from "./open.ts";
 import { ViewerNotRunningError } from "./daemon-client.ts";
@@ -17,7 +16,7 @@ async function list(runtime: ArtifactsRuntime): Promise<ArtifactMeta[]> {
 async function pickArtifact(runtime: ArtifactsRuntime, ctx: ExtensionCommandContext): Promise<string | null | undefined> {
 	const all = await list(runtime);
 	const labels = [GALLERY, ...all.map((a) => `${a.title}  (${a.id})`)];
-	const choice = await ctx.ui.select(`Artifacts — ${artifactsDir()}`, labels);
+	const choice = await ctx.ui.select(`Artifacts — ${runtime.daemon.artifactsRoot}`, labels);
 	if (!choice) return undefined;
 	return choice === GALLERY ? null : (all[labels.indexOf(choice) - 1]?.id ?? undefined);
 }
@@ -36,7 +35,7 @@ export function registerArtifactsCommand(pi: ExtensionAPI, runtime: ArtifactsRun
 			const items = [
 				{ value: "export", label: "export", description: "Export an artifact as one HTML file" },
 				{ value: "delete", label: "delete", description: "Delete an artifact" },
-				{ value: "stop", label: "stop", description: "Stop the viewer (all pi sessions)" },
+				{ value: "stop", label: "stop", description: "Stop the project viewer (all its pi sessions)" },
 				...(await list(runtime).catch(() => [])).map((a) => ({ value: a.id, label: a.id, description: a.title })),
 			];
 			const filtered = items.filter((i) => i.value.startsWith(prefix));

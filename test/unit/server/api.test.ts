@@ -245,22 +245,64 @@ describe("api", () => {
 		}
 	});
 
-	it("reports errors by arrival order even when the wall clock moves backward", async () => {
+	it("isolates overlapping observations across writes, deletion and same-ID recreation", async () => {
 		const now = vi.spyOn(Date, "now").mockReturnValue(1000);
-		ctx.noteViewing("clock-errors");
-		ctx.reportError("clock-errors", "old");
-		const compile = vi.spyOn(ctx, "compileCheck").mockImplementation(async () => {
-			now.mockReturnValue(500);
-			ctx.reportError("clock-errors", "new");
-			return undefined;
-		});
+		const id = "concurrent-errors";
+		const deferred = <T>() => {
+			let resolve!: (value: T) => void;
+			const promise = new Promise<T>((done) => { resolve = done; });
+			return { promise, resolve };
+		};
+		const ready = Array.from({ length: 3 }, () => deferred<void>());
+		let next = 0;
+		const viewing = vi.spyOn(ctx, "isViewing").mockImplementation(() => { ready[next++].resolve(); return true; });
+		const saves: ReturnType<DaemonContext["writeArtifact"]>[] = [];
+		const save = () => ctx.writeArtifact({ id, title: id, code: "same source" }, 1500);
+		const load = () => ctx.loadObservableSource(id, async () => "same source");
 		try {
-			const result = await ctx.writeArtifact({ id: "clock-errors", title: "Clock", code: "" }, 0);
-			expect(result.runtimeErrors.map((error) => error.message)).toEqual(["new"]);
+			let firstFinished = false;
+			saves.push(save().then((result) => { firstFinished = true; return result; }));
+			await ready[0].promise;
+			const first = (await load())!.token!;
+			expect(first).toBeTruthy();
+			const original = deferred<string>();
+			const crossingRead = ctx.loadObservableSource(id, () => original.promise);
+
+			saves.push(save());
+			await ready[1].promise;
+			const second = (await load())!.token!;
+			expect(second).toBeTruthy();
+			original.resolve("same source");
+			expect((await crossingRead)?.token).toBeUndefined();
+			expect((await ctx.loadObservableSource(id, async () => "externally edited source"))?.token).toBeUndefined();
+			expect(await ctx.deleteArtifact(id)).toBe(true);
+			expect(await load()).toBeUndefined();
+			saves.push(save());
+			await ready[2].promise;
+			const recreated = (await load())!.token!;
+			expect(recreated).toBeTruthy();
+			expect(new Set([first, second, recreated]).size).toBe(3);
+			expect(firstFinished).toBe(false);
+
+			ctx.reportError(id, recreated, "new instance");
+			ctx.reportError(id, "unknown-token", "untagged");
+			ctx.reportError("different-artifact", second, "foreign id");
+			now.mockReturnValue(500);
+			ctx.reportError(id, first, "late first revision");
+			ctx.reportError(id, second, "late second revision");
+			const results = await Promise.all(saves);
+			expect(results.map((result) => result.runtimeErrors.map((error) => error.message))).toEqual([
+				["late first revision"], ["late second revision"], ["new instance"],
+			]);
+			expect(results.map(({ meta }) => meta.updatedAt)).toEqual([1000, 1001, 1000]);
+			expect(results[0].meta.instanceId).not.toBe(results[2].meta.instanceId);
+			ctx.reportError(id, recreated, "after observation ended");
+			expect(results[2].runtimeErrors).toHaveLength(1);
 		} finally {
-			compile.mockRestore();
+			await Promise.allSettled(saves);
+			viewing.mockRestore();
 			now.mockRestore();
-			await ctx.deleteArtifact("clock-errors");
+			await ctx.deleteArtifact(id);
 		}
 	});
 

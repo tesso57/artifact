@@ -1351,6 +1351,40 @@ export default function MemoryDemo() {
 	await snapshotLive.close();
 	step("memory.set snapshots its input live and offline");
 
+	// An async callback from the first save can fail after the next save is visible.
+	const runtimeState = JSON.parse(readFileSync(join(dir, ".state", "viewer.json"), "utf8"));
+	const saveRuntime = async (code: string) => {
+		const response = await fetch(`${runtimeState.url}/__pi/api/artifacts/write`, {
+			method: "POST",
+			headers: { "x-pi-artifacts-secret": runtimeState.secret, "content-type": "application/json" },
+			body: JSON.stringify({ id: "runtime-overlap", title: "Runtime overlap", code }),
+		});
+		if (!response.ok) throw new Error(await response.text());
+		return response.json();
+	};
+	const runtimeSeed = await saveRuntime('export default function RuntimeOverlap() { return <p>Before overlap</p>; }');
+	const runtimePage = await browser.newPage();
+	const pinged = runtimePage.waitForResponse((r) => Buffer.from(new URL(r.url()).pathname.split("/").at(-1) ?? "", "base64url").toString("utf8").includes("pingFn") && r.ok());
+	await runtimePage.goto(runtimeSeed.link);
+	await runtimePage.getByText("Before overlap").waitFor({ timeout: 10000 });
+	await pinged;
+	const older = saveRuntime(`import { runtimeObservation } from "/src/lib/runtime-observation.ts";
+const tagged = runtimeObservation(import.meta.url, undefined, import.meta.url);
+if (tagged) globalThis.failOlderRuntime = () => queueMicrotask(() => { throw new Error("late older callback"); });
+export default function RuntimeOverlap() { return <p>{tagged ? "Older revision ready" : "Waiting for observation"}</p>; }`);
+	await runtimePage.getByText("Older revision ready").waitFor({ timeout: 10000 });
+	const newer = saveRuntime('export default function RuntimeOverlap() { throw new Error("newer render error"); }');
+	await runtimePage.getByRole("alert").filter({ hasText: "newer render error" }).first().waitFor({ timeout: 10000 });
+	await runtimePage.evaluate(() => (globalThis as typeof globalThis & { failOlderRuntime: () => void }).failOlderRuntime());
+	const [olderResult, newerResult] = await Promise.all([older, newer]);
+	const messages = (result: typeof olderResult) => [...new Set(result.runtimeErrors.map((error: { message: string }) => error.message))];
+	const observedErrors = [messages(olderResult), messages(newerResult)];
+	if (JSON.stringify(observedErrors) !== JSON.stringify([["late older callback"], ["newer render error"]])) {
+		throw new Error(`overlapping runtime reports were mixed: ${JSON.stringify(observedErrors)}`);
+	}
+	await runtimePage.close();
+	step("overlapping saves receive only the errors from their own executed modules");
+
 	first.respond([
 		fauxAssistantMessage(fauxToolCall("artifact_memory", { action: "set", scope: "loading-memory", key: "count", value: 10 })),
 		fauxAssistantMessage(fauxToolCall("artifact_write", { id: "loading-memory", title: "Loading memory", code: 'import { useMemory } from "@pi/artifact"; export default function LoadingMemory() { const [value, setValue] = useMemory("count", 0); return <><p data-testid="count">{value}</p><button onClick={() => setValue(v => v + 1)}>Add</button></>; }' })),

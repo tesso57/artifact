@@ -3,15 +3,15 @@ import { type ComponentType, useEffect, useState } from "react";
 type LoadedArtifact =
 	| { status: "loading" }
 	| { status: "ready"; Component: ComponentType; revision: number }
-	| { status: "error"; error: unknown };
+	| { status: "error"; error: unknown; sourceUrl?: string };
 
 /** A React component: a function, or a memo/forwardRef/lazy object. */
 const isComponent = (c: unknown) => typeof c === "function" || (typeof c === "object" && c !== null && "$$typeof" in c);
 
-function toLoaded(mod: { default?: unknown }): LoadedArtifact {
+function toLoaded(mod: { default?: unknown }, sourceUrl: string): LoadedArtifact {
 	return isComponent(mod.default)
 		? { status: "ready", Component: mod.default as ComponentType, revision: 0 }
-		: { status: "error", error: new Error("The artifact must `export default` a React component") };
+		: { status: "error", error: new Error("The artifact must `export default` a React component"), sourceUrl };
 }
 
 /**
@@ -38,7 +38,7 @@ export function useArtifactModule(url: string, version: number): LoadedArtifact 
 		let cancelled = false;
 		const src = attempt === 0 ? url : `${url}?t=${attempt}-${Date.now()}`;
 		import(/* @vite-ignore */ src).then(
-			(mod) => !cancelled && setState(toLoaded(mod)),
+			(mod) => !cancelled && setState(toLoaded(mod, src)),
 			(error) => {
 				if (cancelled) return;
 				setState({ status: "error", error });
@@ -59,10 +59,11 @@ export function useArtifactModule(url: string, version: number): LoadedArtifact 
 			const update = payload.updates.find((u) => u.path === url || u.path === decodeURI(url));
 			if (!update) return;
 			// Same URL + timestamp as Vite's own hot import: returns the already-updated module.
-			import(/* @vite-ignore */ `${url}?t=${update.timestamp}`).then(
+			const src = `${url}?t=${update.timestamp}`;
+			import(/* @vite-ignore */ src).then(
 				(mod) =>
 					setState((prev) => {
-						const next = toLoaded(mod);
+						const next = toLoaded(mod, src);
 						// Fast Refresh swaps named components in place (keeping state); anonymous ones are
 						// not registered with it, and renamed ones are new components: mount those.
 						const named = (c: unknown) => typeof c === "function" && !!c.name && c.name !== "default";

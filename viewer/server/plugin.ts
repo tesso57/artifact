@@ -2,6 +2,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { readFile, realpath } from "node:fs/promises";
 import { isFileLoadingAllowed, type Plugin, type ResolvedConfig } from "vite";
 import { artifactsDir, BUNDLED_TEMPLATES_DIR, designDir, PACKAGE_ROOT, stateDir, userTemplatesDir } from "../../shared/paths.ts";
+import { isValidId } from "../../shared/ids.ts";
 import { ARTIFACTS_CHANGED_EVENT } from "../src/lib/events.ts";
 import { apiMiddleware, guardMiddleware } from "./api.ts";
 import type { DaemonContext } from "./context.ts";
@@ -104,11 +105,37 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 			return resolved;
 		},
 		async load(id) {
-			if (!ctx || !parseVirtualModuleUrl(id)) return;
-			const file = await ctx.moduleFile(id);
-			virtualFiles.set(id, file);
-			this.addWatchFile(file);
-			return readFile(file, "utf8");
+			if (!ctx) return;
+			const virtual = parseVirtualModuleUrl(id);
+			const client = this.environment.config.consumer === "client";
+			if (!client && !virtual) return;
+			let file = id;
+			if (virtual) {
+				file = await ctx.moduleFile(id);
+				virtualFiles.set(id, file);
+				this.addWatchFile(file);
+			}
+			if (!client) return readFile(file, "utf8");
+			let name = virtual?.kind === "a" ? virtual.name : undefined;
+			if (!virtual && basename(file) === "index.tsx") {
+				const parent = dirname(dirname(file));
+				const candidate = basename(dirname(file));
+				if (isValidId(candidate) && [resolve(artifactsDir()), resolve(ctx.aliases.map(artifactsDir())), sourceRoots[0]].includes(resolve(parent))) name = candidate;
+			}
+			const source = name && await ctx.loadObservableSource(name, async () => {
+				const physical = await checkPhysicalFile(file);
+				if (!virtual) this.addWatchFile(file);
+				return readFile(physical, "utf8");
+			});
+			if (!source) return virtual ? readFile(file, "utf8") : undefined;
+			if (!source.token) return source.code;
+			// Use the executed URL (including Vite's HMR timestamp). An error from
+			// an older module can arrive after Fast Refresh replaced its component.
+			const register = `__piObserve_${source.token.replaceAll("-", "")}`;
+			const prelude = `import { registerRuntimeObservation as ${register} } from "/src/lib/runtime-observation.ts"; ${register}(import.meta.url, ${JSON.stringify(source.token)});\n`;
+			const start = source.code.startsWith("#!") ? source.code.indexOf("\n") + 1 : 0;
+			if (source.code.startsWith("#!") && !start) return `${source.code}\n${prelude}`;
+			return source.code.slice(0, start) + prelude + source.code.slice(start);
 		},
 		async handleHotUpdate(update) {
 			if (!ctx || !virtualFiles.size) return;

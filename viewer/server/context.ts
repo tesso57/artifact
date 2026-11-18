@@ -3,7 +3,7 @@
  * functions (browser) and the exporter. One instance per daemon process, reachable from
  * server functions through `globalThis` (they run in Vite's module runner).
  */
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { readFile } from "node:fs/promises";
@@ -57,6 +57,13 @@ interface WriteResult {
 	observed: boolean;
 }
 
+interface RuntimeObservation {
+	id: string;
+	token: string;
+	code: string;
+	errors: RuntimeError[];
+}
+
 export class DaemonContext {
 	readonly memory: Memory;
 	readonly sessions = new SessionRegistry();
@@ -72,8 +79,8 @@ export class DaemonContext {
 	private spentLinks = new Map<string, { exp: number; next: string }>();
 	/** Browser sessions (cookie values) → expiry. Distinct from the API secret. */
 	private browserSessions = new Map<string, number>();
-	private errors = new Map<string, { sequence: number; error: RuntimeError }[]>();
-	private errorSequence = 0;
+	private runtimeObservations = new Map<string, RuntimeObservation>();
+	private observableSources = new Map<string, RuntimeObservation>();
 	private viewing = new Map<string, number>();
 	private pendingMcpCalls = new Set<{ id: string; valid: boolean; key?: string }>();
 
@@ -307,34 +314,49 @@ export class DaemonContext {
 	}
 
 	async writeArtifact(input: WriteArtifactInput, waitForRuntimeMs = 2500): Promise<WriteResult> {
-		let started = 0;
 		let compileError: string | undefined;
-		let observed = false;
-		let runtimeErrors: RuntimeError[] = [];
-		const { meta, created } = await writeArtifact(input, undefined, {
-			beforeWrite: () => { started = this.errorSequence; },
-			afterWrite: async (written) => {
-				for (const call of this.pendingMcpCalls) if (call.id === written.id) call.valid = false;
-				this.memory.clearArtifactMcp(written.id);
-				const file = artifactPaths(written.id).entry;
-				compileError = await this.compileCheck(this.aliases.map(file), this.moduleUrl("a", written.id, file));
-				await this.refreshStyles();
-				observed = !compileError && this.isViewing(written.id);
-				// Give an open tab time to hot-reload and report what broke.
-				if (observed && waitForRuntimeMs > 0) await new Promise((r) => setTimeout(r, waitForRuntimeMs));
-				runtimeErrors = (this.errors.get(written.id) ?? []).filter((entry) => entry.sequence > started).map((entry) => entry.error);
-			},
-		});
-		const { entry } = artifactPaths(meta.id);
-		return { meta, created, path: entry, compileError, runtimeErrors, observed };
+		let observation: RuntimeObservation | undefined;
+		try {
+			const { meta, created } = await writeArtifact(input, undefined, {
+				beforeWrite: (id) => { this.observableSources.delete(id); },
+				afterWrite: async (written) => {
+					for (const call of this.pendingMcpCalls) if (call.id === written.id) call.valid = false;
+					this.memory.clearArtifactMcp(written.id);
+					const file = artifactPaths(written.id).entry;
+					const served = this.aliases.map(file);
+					const url = this.moduleUrl("a", written.id, file);
+					compileError = await this.compileCheck(served, url);
+					await this.refreshStyles();
+					if (compileError || !this.isViewing(written.id)) return;
+					observation = { id: written.id, token: randomUUID(), code: input.code, errors: [] };
+					this.runtimeObservations.set(observation.token, observation);
+					this.observableSources.set(written.id, observation);
+
+					// A filesystem update may have reached the browser before this save was ready.
+					// Reload the entry now so a preview can fetch the committed, tagged source.
+					const env = this.server?.environments.client;
+					const module = await env?.moduleGraph.getModuleByUrl(decodeURI(url));
+					if (env && module) await env.reloadModule(module);
+				},
+			});
+			// Publication and cache work are complete. A later save or delete can now
+			// proceed, while this call still accepts reports for its own loaded module.
+			if (observation && waitForRuntimeMs > 0) await new Promise((r) => setTimeout(r, waitForRuntimeMs));
+			return { meta, created, path: artifactPaths(meta.id).entry, compileError, runtimeErrors: observation?.errors ?? [], observed: !!observation };
+		} finally {
+			if (observation) {
+				this.runtimeObservations.delete(observation.token);
+				if (this.observableSources.get(observation.id) === observation) this.observableSources.delete(observation.id);
+			}
+		}
 	}
 
 	async deleteArtifact(id: string): Promise<boolean> {
 		return deleteArtifact(id, undefined, (deleted) => {
 			for (const call of this.pendingMcpCalls) if (call.id === id) call.valid = false;
 			if (!deleted) return;
+			this.observableSources.delete(id);
 			this.memory.forget(id);
-			this.errors.delete(id);
 			this.memoryChanged(id);
 		});
 	}
@@ -345,7 +367,6 @@ export class DaemonContext {
 		for (const call of this.pendingMcpCalls) if (call.id === id) call.valid = false;
 		if (!deleted) return;
 		this.memory.forget(id);
-		this.errors.delete(id);
 		this.viewing.delete(id);
 		this.memoryChanged(id);
 		this.templateChanged(name);
@@ -361,11 +382,21 @@ export class DaemonContext {
 		this.server?.ws.send({ type: "custom", event: TEMPLATE_CHANGED_EVENT, data: { name } });
 	}
 
-	reportError(id: string, message: string, stack?: string): void {
-		if (!isValidRuntimeId(id)) return;
-		const list = this.errors.get(id) ?? [];
-		list.push({ sequence: ++this.errorSequence, error: { message: message.slice(0, 2000), stack: stack?.slice(0, 4000), at: Date.now() } });
-		this.errors.set(id, list.slice(-10));
+	/** Stamp only the bytes read during one published observation. */
+	async loadObservableSource(id: string, read: () => Promise<string>): Promise<{ code: string; token?: string } | undefined> {
+		const observation = this.observableSources.get(id);
+		if (!observation) return;
+		const code = await read();
+		const token = observation.code === code && this.observableSources.get(id) === observation ? observation.token : undefined;
+		return { code, token };
+	}
+
+	reportError(id: string, token: string, message: string, stack?: string): void {
+		const observation = this.runtimeObservations.get(token);
+		if (observation?.id !== id) return;
+		const errors = observation.errors;
+		errors.push({ message: message.slice(0, 2000), stack: stack?.slice(0, 4000), at: Date.now() });
+		if (errors.length > 10) errors.shift();
 	}
 
 	/** Tell open pages that the agent changed a memory scope, so they refetch it. */

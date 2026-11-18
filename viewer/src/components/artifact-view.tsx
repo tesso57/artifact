@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MEMORY_CHANGED_EVENT } from "@/lib/events";
 import { timeAgo } from "@/lib/format";
+import { runtimeObservation } from "@/lib/runtime-observation";
 import { useArtifactModule } from "@/lib/use-artifact-module";
 import { ArtifactContext, setCurrentArtifact } from "@/sdk/context";
 import { invalidateMemoryQueries } from "@/sdk/memory-sync";
@@ -28,16 +29,17 @@ interface ArtifactViewData {
 	moduleUrl: string;
 }
 
-function report(id: string, error: unknown) {
+function report(id: string, moduleUrl: string, error: unknown, sourceUrl?: string) {
 	const e = error instanceof Error ? error : new Error(String(error));
-	void reportErrorFn({ data: { id, message: e.message, stack: e.stack } }).catch(() => {});
+	const token = runtimeObservation(moduleUrl, e.stack, sourceUrl);
+	if (token) void reportErrorFn({ data: { id, token, message: e.message, stack: e.stack } }).catch(() => {});
 }
 
 /**
  * Tell the daemon this artifact is open (so artifact_write waits for runtime errors) and
  * forward uncaught errors, so the agent learns about crashes it cannot see.
  */
-function useRuntimeFeedback(id: string) {
+function useRuntimeFeedback(id: string, moduleUrl: string) {
 	const qc = useQueryClient();
 	useEffect(() => {
 		const hot = import.meta.hot;
@@ -56,8 +58,8 @@ function useRuntimeFeedback(id: string) {
 		const timer = setInterval(ping, 8000);
 		document.addEventListener("visibilitychange", ping);
 		import.meta.hot?.on("vite:beforeUpdate", ping);
-		const onError = (e: ErrorEvent) => report(id, e.error ?? e.message);
-		const onRejection = (e: PromiseRejectionEvent) => report(id, e.reason);
+		const onError = (e: ErrorEvent) => report(id, moduleUrl, e.error ?? e.message, e.filename);
+		const onRejection = (e: PromiseRejectionEvent) => report(id, moduleUrl, e.reason);
 		window.addEventListener("error", onError);
 		window.addEventListener("unhandledrejection", onRejection);
 		return () => {
@@ -68,17 +70,17 @@ function useRuntimeFeedback(id: string) {
 			window.removeEventListener("error", onError);
 			window.removeEventListener("unhandledrejection", onRejection);
 		};
-	}, [id]);
+	}, [id, moduleUrl]);
 }
 
 /** The artifact page chrome (Preview / Code / Memory) around one artifact module. */
 export function ArtifactView({ data, kind = "artifact" }: { data: ArtifactViewData; kind?: "artifact" | "template" }) {
 	const [tab, setTab] = useState("preview");
 	const loaded = useArtifactModule(data.moduleUrl, data.updatedAt);
-	useRuntimeFeedback(data.id);
+	useRuntimeFeedback(data.id, data.moduleUrl);
 	useEffect(() => {
-		if (loaded.status === "error") report(data.id, loaded.error);
-	}, [loaded, data.id]);
+		if (loaded.status === "error") report(data.id, data.moduleUrl, loaded.error, loaded.sourceUrl);
+	}, [loaded, data.id, data.moduleUrl]);
 
 	return (
 		<ArtifactContext.Provider value={{ id: data.id, instanceId: data.instanceId, updatedAt: data.updatedAt, title: data.title, description: data.description, mcp: data.mcp }}>
@@ -120,7 +122,7 @@ export function ArtifactView({ data, kind = "artifact" }: { data: ArtifactViewDa
 					{loaded.status === "loading" && <PreviewSkeleton />}
 					{loaded.status === "error" && <ErrorPanel title="The artifact failed to load" error={loaded.error} />}
 					{loaded.status === "ready" && (
-						<ArtifactErrorBoundary resetKey={loaded.revision} onError={(e) => report(data.id, e)}>
+						<ArtifactErrorBoundary resetKey={loaded.revision} onError={(e) => report(data.id, data.moduleUrl, e)}>
 							<Suspense fallback={<PreviewSkeleton />}>
 								<loaded.Component />
 							</Suspense>

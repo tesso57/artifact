@@ -41,11 +41,11 @@ async function writeAtomic(file: string, data: string) {
 export async function writeArtifact(
 	input: WriteArtifactInput,
 	root = artifactsDir(),
-	hooks?: { beforeWrite?: () => void; afterWrite?: (meta: ArtifactMeta) => Promise<void> },
+	hooks?: { beforeWrite?: (id: string) => void; afterWrite?: (meta: ArtifactMeta) => Promise<void> },
 ): Promise<{ meta: ArtifactMeta; created: boolean }> {
 	const writeLocked = async (id: string, onCommitted?: () => void) => {
 		const paths = artifactPaths(id, root);
-		hooks?.beforeWrite?.();
+		hooks?.beforeWrite?.(id);
 		const previous = await readMeta(id, root);
 		const now = Date.now();
 		const meta: ArtifactMeta = {

@@ -59,9 +59,11 @@ export const pingFn = createServerFn({ method: "POST" })
 	});
 
 export const reportErrorFn = createServerFn({ method: "POST" })
-	.validator((d: { id: string; message: string; stack?: string }) => ({ ...d, id: runtimeId(d.id), message: String(d.message) }))
+	.validator((d: { id: string; token: string; message: string; stack?: string }) => ({
+		id: runtimeId(d.id), token: String(d.token), message: String(d.message), stack: typeof d.stack === "string" ? d.stack : undefined,
+	}))
 	.handler(({ data }) => {
-		ctx().reportError(data.id, data.message, data.stack);
+		ctx().reportError(data.id, data.token, data.message, data.stack);
 		return null;
 	});
 

@@ -13,10 +13,7 @@ function alive(pid: number): boolean {
 	catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
-/** Exclusive lock so concurrent pi sessions never start two daemons. */
 export async function acquireLock(file: string): Promise<boolean> {
-	// Keep the gate until shutdown, even if the PID file inside the directory is removed.
-	// SQLite releases the lock automatically if this process dies.
 	const gate = new DatabaseSync(`${file}.gate.sqlite`);
 	let held = false;
 	try {
@@ -44,7 +41,6 @@ export async function acquireLock(file: string): Promise<boolean> {
 	}
 }
 
-/** Release the gate after the daemon has stopped and removed its PID lock. */
 export function releaseLock(file: string): void {
 	const gate = heldGates.get(file);
 	if (!gate) return;
@@ -77,7 +73,6 @@ async function acquirePidLock(file: string): Promise<boolean> {
 			throw new StaleLegacyLockError(`Stale legacy lock at ${file}; stop all old pi sessions and viewers, verify the lock is stale and remove it manually before restarting`);
 		}
 		if (!isInitializedLock(file)) throw new StaleLegacyLockError(`Unrecognized lock directory at ${file}; stop all old pi sessions and viewers and inspect it before manual recovery`);
-		// Keep the initialized directory across crashes and shutdowns: legacy rm cannot delete it.
 		const entries = readdirSync(file);
 		if (entries.some((entry) => entry !== "pid" && entry !== "format")) throw new Error(`Unexpected files in lock directory ${file}`);
 		if (entries.includes("pid")) {
@@ -89,7 +84,6 @@ async function acquirePidLock(file: string): Promise<boolean> {
 	}
 }
 
-/** Remove only our PID, keeping the initialized directory as a legacy barrier. */
 export function removePidLock(file: string): void {
 	try {
 		if (!isInitializedLock(file) || readLockOwner(file) !== process.pid) return;

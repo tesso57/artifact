@@ -1,10 +1,3 @@
-/**
- * Template: KPI dashboard — StatCards, a themed area chart (ChartCard), and a
- * sortable, searchable DataTable; the date range is remembered in memory.
- *
- * Adapt: replace CONFIG and the two data sources. For live data, wrap sections in
- * <McpQuery tool="server.tool"> or use useMcp() and pass `loading={q.isPending}`.
- */
 import { useMemory } from "@pi/artifact";
 import { DollarSign, ShoppingCart, Users } from "lucide-react";
 import { useMemo } from "react";
@@ -14,13 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-// ---- CONFIG: what this dashboard is about --------------------------------------
 const CONFIG = { title: "Store overview", currency: "USD", ranges: ["7", "14", "30"] as const };
 
 type Day = { date: string; revenue: number; orders: number; visitors: number };
 type Product = { name: string; category: string; sales: number; growth: number };
 
-// ---- DATA: sample data; replace with MCP results or computed values -------------
 const DAYS: Day[] = Array.from({ length: 30 }, (_, i) => ({
 	date: `11/${String(i + 1).padStart(2, "0")}`,
 	revenue: Math.round(4000 + Math.sin(i / 4) * 1200 + i * 60),

@@ -10,7 +10,7 @@ it("maps special roots to private temporary aliases and removes only the aliases
 	writeFileSync(source, "original");
 	const aliases = new RuntimeAliases([root]);
 	try {
-		if (!aliases.paths.length) return; // Some Windows configurations disallow links.
+		if (!aliases.paths.length) return;
 		const mapped = aliases.map(source);
 		const aliasRoot = aliases.paths[0];
 		expect(mapped).not.toBe(source);

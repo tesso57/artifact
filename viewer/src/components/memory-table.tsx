@@ -18,7 +18,6 @@ import { memory, useMemoryList } from "@pi/artifact";
 
 type Row = { key: string; value: unknown; updatedAt: number };
 
-// TanStack Table v9: features and the column helper live at module scope.
 const features = tableFeatures({
 	rowSortingFeature,
 	sortedRowModel: createSortedRowModel(),

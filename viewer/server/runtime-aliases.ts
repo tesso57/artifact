@@ -9,7 +9,6 @@ function inside(root: string, path: string): boolean {
 	return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-/** Private symlink aliases let Vite resolve files under roots containing URL delimiters. */
 export class RuntimeAliases {
 	private readonly entries: { original: string; real: string; alias: string }[] = [];
 	private directory?: string;
@@ -33,7 +32,7 @@ export class RuntimeAliases {
 				this.entries.push({ original, real, alias });
 			}
 		} catch {
-			this.cleanup(); // Fall back to the existing single-file virtual module route.
+			this.cleanup();
 		}
 	}
 

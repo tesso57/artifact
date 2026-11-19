@@ -30,7 +30,6 @@ interface Props {
 	onError?: (error: Error) => void;
 }
 
-/** Catches render errors of an artifact; resets when `resetKey` changes (new version). */
 export class ArtifactErrorBoundary extends Component<Props, { error: Error | null; key: unknown }> {
 	state = { error: null as Error | null, key: this.props.resetKey };
 

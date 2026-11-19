@@ -2,7 +2,6 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** Keep test data separate even when the caller configured normal-use paths. */
 export function isolateTestEnvironment(env: NodeJS.ProcessEnv): { dir: string; cleanup: () => void } {
 	const base = env.PI_ARTIFACTS_DIR || tmpdir();
 	mkdirSync(base, { recursive: true });

@@ -1,7 +1,3 @@
-/**
- * What the SDK talks to. In the viewer this is the TanStack Start server functions;
- * a single-file export swaps in `src/export/static-backend.ts` (same interface).
- */
 import {
 	mcpCallFn,
 	mcpListToolsFn,
@@ -21,9 +17,7 @@ export interface MemoryRow {
 }
 
 export interface Backend {
-	/** "live" in the viewer, "static" in an exported HTML file. */
 	mode: "live" | "static";
-	/** `from`: the calling artifact, so reads of "shared" can be embedded in its exports. */
 	memoryGet(scope: string, key: string, from?: string): Promise<unknown>;
 	memorySet(scope: string, key: string, value: unknown): Promise<void>;
 	memoryCompareSet(scope: string, key: string, expected: MemorySnapshot, value: unknown): Promise<boolean>;

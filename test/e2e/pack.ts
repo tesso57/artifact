@@ -1,9 +1,3 @@
-/**
- * Install smoke test: `npm pack` this package, install the tarball into a fresh folder the way
- * `pi install` does (`--omit=dev --legacy-peer-deps`, inside node_modules), then run the full
- * e2e suite against that installed copy.
- *   node test/e2e/pack.ts
- */
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

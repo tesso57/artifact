@@ -1,4 +1,3 @@
-/** Helpers to drive real pi SDK sessions with a faux model, this package and an MCP server. */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
@@ -13,7 +12,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const here = dirname(fileURLToPath(import.meta.url));
-/** The package under test: this checkout, or an installed copy (PI_ARTIFACTS_PACKAGE). */
 export const PACKAGE = process.env.PI_ARTIFACTS_PACKAGE ?? resolve(here, "../..");
 
 interface TestSession {
@@ -24,7 +22,6 @@ interface TestSession {
 	lastResult(tool: string): { text: string; isError: boolean };
 	results(tool: string): { text: string; isError: boolean }[];
 	skills: string[];
-	/** Emit session_shutdown (like quitting pi or /new) and dispose. */
 	close(): Promise<void>;
 }
 
@@ -38,7 +35,6 @@ export async function startPi(requestedCwd?: string): Promise<TestSession> {
 	let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
 	try {
 		const faux = fauxProvider({ provider: "faux", models: [{ id: "faux-1" }] });
-		// Load the package like `pi install` would (manifest: extensions + skills).
 		const settingsManager = SettingsManager.inMemory({ packages: [PACKAGE] } as never);
 		const resourceLoader = new DefaultResourceLoader({
 			cwd,
@@ -89,7 +85,6 @@ export async function startPi(requestedCwd?: string): Promise<TestSession> {
 	}
 }
 
-/** The "Open:" login link of an artifact_write / artifact_template result. */
 export function openLink(text: string, label = "Open"): string {
 	const m = new RegExp(`${label}: (\\S+)`).exec(text);
 	if (!m) throw new Error(`no ${label} link in:\n${text}`);

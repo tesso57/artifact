@@ -1,10 +1,6 @@
 import { TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
-/**
- * The viewer daemon keeps browser sessions in memory, so a restart (idle exit, update)
- * signs open tabs out. Say so plainly instead of failing every request.
- */
 export function SessionBanner() {
 	const [signedOut, setSignedOut] = useState(false);
 	useEffect(() => {

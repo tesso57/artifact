@@ -65,7 +65,6 @@ describe("mcpCallKey", () => {
 		expect(mcpCallKey("mcp__x__y", { date })).toBe(mcpCallKey("mcp__x__y", { date: date.toISOString() }));
 		expect(mcpCallKey("mcp__x__y", { date })).not.toBe(mcpCallKey("mcp__x__y", { date: {} }));
 		expect(stableStringify({ values: Array(1), ignored: () => {} })).toBe('{"values":[null]}');
-		// A root Date serializes to a string, which the bridge treats as empty arguments.
 		expect(mcpCallKey("mcp__x__y", date)).toBe(mcpCallKey("mcp__x__y", {}));
 	});
 });

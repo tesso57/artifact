@@ -5,7 +5,6 @@ import valueParser from "postcss-value-parser";
 
 type ResolveSafe = (specifier: string, importer: string, isImport: boolean) => Promise<string | undefined>;
 
-/** Validate local CSS imports and URLs before Vite's CSS processor reads them. */
 export async function validateCssReferences(code: string, file: string, resolveSafe: ResolveSafe, visited = new Set<string>(), depth = 0): Promise<void> {
 	if (depth > 32) throw new Error(`CSS import nesting is too deep in ${file}`);
 	if (visited.has(file)) return;

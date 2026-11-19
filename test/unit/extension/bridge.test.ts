@@ -157,7 +157,7 @@ describe("bridge", () => {
 		expect((await call("/mcp/call", req("mcp__docs__delete"))).status).toBe(200);
 		expect((await call("/mcp/call", req("mcp__docs__delete", "another-artifact"))).status).toBe(200);
 		expect(confirm).toHaveBeenCalledTimes(1);
-		expect((await call("/mcp/call", req("mcp__docs__web"))).status).toBe(200); // read-only but open-world
+		expect((await call("/mcp/call", req("mcp__docs__web"))).status).toBe(200);
 		expect(confirm).toHaveBeenCalledTimes(2);
 	});
 

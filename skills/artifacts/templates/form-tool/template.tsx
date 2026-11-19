@@ -1,7 +1,3 @@
-/**
- * Template: interactive tool with a form — a habit tracker. Entries persist in
- * SQLite memory (useMemory), with a dialog, switch, progress and empty state.
- */
 import { useMemory } from "@pi/artifact";
 import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";

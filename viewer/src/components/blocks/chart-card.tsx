@@ -3,10 +3,8 @@ import { ResponsiveContainer } from "recharts";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-/** Series colors from the theme (light/dark aware). */
 export const CHART_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 
-/** Spread onto recharts <XAxis>/<YAxis> for themed, quiet axes. */
 export const axisProps = {
 	tickLine: false,
 	axisLine: false,
@@ -15,10 +13,8 @@ export const axisProps = {
 	fontSize: 12,
 } as const;
 
-/** Spread onto recharts <CartesianGrid>. */
 export const gridProps = { vertical: false, stroke: "var(--border)" } as const;
 
-/** Spread onto recharts <Tooltip>. */
 export const tooltipProps = {
 	contentStyle: {
 		background: "var(--popover)",
@@ -30,11 +26,6 @@ export const tooltipProps = {
 	cursor: { fill: "var(--muted)", opacity: 0.5 },
 } as const;
 
-/**
- * Card with a responsive recharts chart. `children` is one recharts chart element.
- *
- *   <ChartCard title="Revenue"><AreaChart data={rows}>…</AreaChart></ChartCard>
- */
 export function ChartCard({
 	title,
 	description,

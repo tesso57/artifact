@@ -7,22 +7,18 @@ import { isValidId } from "../../shared/ids.ts";
 import { withPathLock } from "./path-lock.ts";
 import { assertRealDirectory, readExistingFile, writeSourceFile } from "./safe-file.ts";
 
-/** What a template is for; `useCases` is what the agent matches requests against. */
 interface TemplateMeta {
 	title: string;
 	description: string;
 	useCases: string[];
 	tags?: string[];
-	/** MCP tools a preview of the template may call (same patterns as artifact_write). */
 	mcp?: string[];
-	/** Changes on every save so open previews can invalidate version-specific data. */
 	revision?: string;
 }
 
 interface TemplateInfo extends TemplateMeta {
 	name: string;
 	source: "bundled" | "user";
-	/** Absolute path of `template.tsx`. */
 	path: string;
 }
 
@@ -67,7 +63,6 @@ async function readDir(dir: string, source: TemplateInfo["source"]): Promise<Tem
 	return out;
 }
 
-/** Bundled and user templates; a user template overrides a bundled one with the same name. */
 export async function listTemplates(bundledDir: string, userDir = userTemplatesDir()): Promise<TemplateInfo[]> {
 	const byName = new Map<string, TemplateInfo>();
 	for (const t of [...(await readDir(bundledDir, "bundled")), ...(await readDir(userDir, "user"))]) byName.set(t.name, t);
@@ -138,7 +133,6 @@ export async function saveTemplate(
 	});
 }
 
-/** Delete a user template (bundled templates are read-only). */
 export async function deleteTemplate(name: string, userDir = userTemplatesDir(), afterDelete?: (deleted: boolean) => void): Promise<boolean> {
 	const files = templateFiles(userDir, name);
 	return withPathLock(files.dir, async () => {

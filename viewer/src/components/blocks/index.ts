@@ -1,4 +1,3 @@
-/** Blocks: shadcn/ui composed with TanStack Query / Table for common artifact needs. */
 export { axisProps, CHART_COLORS, ChartCard, gridProps, tooltipProps } from "./chart-card";
 export { createColumns, DataTable, dataTableFeatures, SortHeader } from "./data-table";
 export { DiagramCard, Mermaid } from "./mermaid";

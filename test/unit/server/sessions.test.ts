@@ -28,7 +28,7 @@ describe("SessionRegistry", () => {
 		now += 10;
 		r.upsert(reg("b"));
 		now += 10;
-		r.upsert(reg("a")); // heartbeat
+		r.upsert(reg("a"));
 		expect(r.pick()?.sessionId).toBe("b");
 		expect(r.pick("a")?.sessionId).toBe("a");
 		expect(r.pick("gone")?.sessionId).toBe("b");
@@ -59,7 +59,7 @@ describe("SessionRegistry", () => {
 		r.upsert(reg("other", { ready: true, tools: ["mcp__z__w"] }));
 		r.upsert(reg("able", { ready: true, tools: ["mcp__x__y"] }));
 		expect(r.pick("writer", "mcp__x__y")?.sessionId).toBe("able");
-		expect(r.pick("writer", "mcp__q__q")?.sessionId).toBe("writer"); // nobody can: ask the writer, it explains
+		expect(r.pick("writer", "mcp__q__q")?.sessionId).toBe("writer");
 	});
 
 	it("expires sessions without heartbeats", () => {

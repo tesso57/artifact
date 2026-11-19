@@ -14,7 +14,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 			{ name: "viewport", content: "width=device-width, initial-scale=1" },
 			{ title: "pi artifacts" },
 		],
-		// theme.css: the user design system's token overrides, served by the daemon after the defaults.
 		links: [
 			{ rel: "stylesheet", href: styles },
 			{ rel: "stylesheet", href: "/__pi/theme.css" },

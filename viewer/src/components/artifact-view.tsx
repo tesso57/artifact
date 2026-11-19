@@ -35,10 +35,6 @@ function report(id: string, moduleUrl: string, error: unknown, sourceUrl?: strin
 	if (token) void reportErrorFn({ data: { id, token, message: e.message, stack: e.stack } }).catch(() => {});
 }
 
-/**
- * Tell the daemon this artifact is open (so artifact_write waits for runtime errors) and
- * forward uncaught errors, so the agent learns about crashes it cannot see.
- */
 function useRuntimeFeedback(id: string, moduleUrl: string) {
 	const qc = useQueryClient();
 	useEffect(() => {
@@ -52,7 +48,6 @@ function useRuntimeFeedback(id: string, moduleUrl: string) {
 	}, [qc]);
 	useEffect(() => {
 		setCurrentArtifact(id);
-		// Ping even when the tab is in the background (behind the terminal is the usual case).
 		const ping = () => void pingFn({ data: id }).catch(() => {});
 		ping();
 		const timer = setInterval(ping, 8000);
@@ -73,7 +68,6 @@ function useRuntimeFeedback(id: string, moduleUrl: string) {
 	}, [id, moduleUrl]);
 }
 
-/** The artifact page chrome (Preview / Code / Memory) around one artifact module. */
 export function ArtifactView({ data, kind = "artifact" }: { data: ArtifactViewData; kind?: "artifact" | "template" }) {
 	const [tab, setTab] = useState("preview");
 	const loaded = useArtifactModule(data.moduleUrl, data.updatedAt);

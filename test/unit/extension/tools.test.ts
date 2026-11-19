@@ -124,7 +124,7 @@ describe("runtimeRoot", () => {
 			expect(readFileSync(join(root, "viewer/server/daemon.ts"), "utf8")).toBe("// daemon");
 			expect(lstatSync(join(root, "node_modules")).isSymbolicLink()).toBe(true);
 			expect(lstatSync(join(root, "viewer", "node_modules")).isSymbolicLink()).toBe(true);
-			expect(runtimeRoot(pkg)).toBe(root); // cached
+			expect(runtimeRoot(pkg)).toBe(root);
 		} finally {
 			delete process.env.PI_ARTIFACTS_RUNTIME;
 		}
@@ -611,7 +611,6 @@ describe("daemon compatibility", () => {
 			const client = new DaemonClient();
 			expect(await client.running()).toBe(true);
 			expect(await client.api("/sessions/register", {}, { start: false })).toEqual({ ok: true });
-			// The daemon is replaced (new secret): the next background call picks it up.
 			secret = "s2";
 			writeState();
 			expect(await client.api("/sessions/register", {}, { start: false })).toEqual({ ok: true });

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Minimal stdio MCP server for tests.
 import { createInterface } from "node:readline";
 
 const tools = [
@@ -39,7 +38,7 @@ const send = (msg) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", .
 createInterface({ input: process.stdin }).on("line", (line) => {
 	if (!line.trim()) return;
 	const req = JSON.parse(line);
-	if (req.id === undefined) return; // notification
+	if (req.id === undefined) return;
 	switch (req.method) {
 		case "initialize":
 			return send({

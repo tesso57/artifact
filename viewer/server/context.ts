@@ -1,8 +1,3 @@
-/**
- * The daemon's state and operations, shared by its HTTP API (pi extension), the server
- * functions (browser) and the exporter. One instance per daemon process, reachable from
- * server functions through `globalThis` (they run in Vite's module runner).
- */
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { performance } from "node:perf_hooks";
@@ -36,14 +31,11 @@ import { needsVirtualModule, parseVirtualModuleUrl, virtualModuleUrl } from "./v
 import { RuntimeAliases } from "./runtime-aliases.ts";
 
 const CONTEXT_KEY = Symbol.for("pi-artifacts.daemon");
-/** Only same-origin paths ("/a/x"), never "//host", "/\\host" or control characters. */
 function localPath(next: string): string {
 	return /^\/(?![/\\])[^\s\\\u0000-\u001f\u007f]*$/.test(next) ? next : "/";
 }
 
-/** A browser session (cookie) lasts this long; the daemon's restart also ends it. */
 const BROWSER_SESSION_TTL_MS = 7 * 24 * 3600_000;
-/** A page that pinged within this window counts as open (background tabs are throttled to ~1/min). */
 const VIEWING_TTL_MS = 90_000;
 
 interface WriteResult {
@@ -51,9 +43,7 @@ interface WriteResult {
 	created: boolean;
 	path: string;
 	compileError?: string;
-	/** Errors an open browser tab reported for this version. */
 	runtimeErrors: RuntimeError[];
-	/** Whether a tab had the artifact open (so runtime errors were observed). */
 	observed: boolean;
 }
 
@@ -71,13 +61,9 @@ export class DaemonContext {
 	server: ViteDevServer | undefined;
 	port = 0;
 	lastActivity = performance.now();
-	/** Set by the daemon entry: how `/__pi/api/shutdown` stops it (works on Windows too). */
 	onShutdown: () => void = () => process.exit(0);
-	/** Unused one-time login tokens and their local destinations. */
 	private links = new Map<string, { next: string }>();
-	/** Used tokens → destination, so a signed-in browser clicking a link again still gets there. */
 	private spentLinks = new Map<string, { exp: number; next: string }>();
-	/** Browser sessions (cookie values) → expiry. Distinct from the API secret. */
 	private browserSessions = new Map<string, number>();
 	private runtimeObservations = new Map<string, RuntimeObservation>();
 	private observableSources = new Map<string, RuntimeObservation>();
@@ -107,21 +93,17 @@ export class DaemonContext {
 		return `http://127.0.0.1:${this.port}`;
 	}
 
-	/** Record activity that should keep the daemon from its idle exit. */
 	touch(): void {
 		this.lastActivity = performance.now();
 	}
 
-	/** Keep the viewer alive while an unused link is waiting to be opened. */
 	isIdle(idleMs: number): boolean {
 		const now = performance.now();
 		this.pruneLinks(now);
 		return this.sessions.size === 0 && this.links.size === 0 && now - this.lastActivity > idleMs;
 	}
 
-	// ---- links ---------------------------------------------------------------------
 
-	/** Cookie name, per port: two daemons (e.g. dev and tests) must not log each other out. */
 	get cookieName(): string {
 		return `${SESSION_COOKIE}_${this.port}`;
 	}
@@ -130,7 +112,6 @@ export class DaemonContext {
 		for (const [t, l] of this.spentLinks) if (l.exp < now) this.spentLinks.delete(t);
 	}
 
-	/** Use up a token (if still unused) and return where it leads. */
 	private spend(token: string): { next: string } | undefined {
 		const link = this.links.get(token);
 		if (!link) return undefined;
@@ -139,10 +120,6 @@ export class DaemonContext {
 		return link;
 	}
 
-	/**
-	 * A URL that logs the browser in and opens `next`. The destination is stored with the
-	 * token (the URL only carries the token), so links cannot be turned into redirects.
-	 */
 	link(next = "/"): string {
 		this.pruneLinks();
 		const token = randomBytes(18).toString("base64url");
@@ -150,20 +127,12 @@ export class DaemonContext {
 		return `${this.origin}/__pi/login?t=${token}`;
 	}
 
-	/**
-	 * For a browser that is already signed in: use the token up (so the link can no longer
-	 * sign anyone else in) and return where it leads — also for links used before.
-	 */
 	followLink(token: string | null): string | undefined {
 		this.pruneLinks();
 		if (!token) return undefined;
 		return (this.spend(token) ?? this.spentLinks.get(token))?.next;
 	}
 
-	/**
-	 * Exchange a one-time link token for a browser session id (the cookie value). Tokens are
-	 * deleted on use, so a link that leaked (logs, model context) stops working once opened.
-	 */
 	login(token: string | null): { session: string; next: string } | undefined {
 		const now = performance.now();
 		this.pruneLinks(now);
@@ -174,7 +143,6 @@ export class DaemonContext {
 		return { session, next: link.next };
 	}
 
-	/** Whether a cookie value is a live browser session. */
 	browserSession(value: string | undefined): boolean {
 		if (!value) return false;
 		const exp = this.browserSessions.get(value);
@@ -186,7 +154,6 @@ export class DaemonContext {
 		return true;
 	}
 
-	/** Constant-time check of the extension's API secret. */
 	isSecret(value: unknown): boolean {
 		if (typeof value !== "string") return false;
 		const a = Buffer.from(value);
@@ -194,7 +161,6 @@ export class DaemonContext {
 		return a.length === b.length && timingSafeEqual(a, b);
 	}
 
-	// ---- artifacts -----------------------------------------------------------------
 
 	listArtifacts(): Promise<ArtifactMeta[]> {
 		return listArtifacts();
@@ -205,7 +171,6 @@ export class DaemonContext {
 		return needsVirtualModule(served) ? virtualModuleUrl(kind, name) : fsUrl(served);
 	}
 
-	/** What the artifact page needs: meta plus the module URL Vite serves. */
 	async artifactView(id: string) {
 		const meta = await readMeta(id);
 		if (!meta) throw new Error(`Artifact "${id}" not found`);
@@ -213,7 +178,6 @@ export class DaemonContext {
 		return { ...meta, mcp: meta.mcp ?? [], moduleUrl: this.moduleUrl("a", id, file) };
 	}
 
-	/** A template rendered like an artifact (`/t/<name>`), with memory scope `template-<name>`. */
 	async templateView(name: string) {
 		const t = await getTemplate(name, BUNDLED_TEMPLATES_DIR);
 		if (!t) throw new Error(`Template "${name}" not found`);
@@ -221,7 +185,6 @@ export class DaemonContext {
 		return { id: `${TEMPLATE_PREFIX}${t.name}`, instanceId: revision, title: `Template: ${t.title}`, description: t.description, mcp: t.mcp ?? [], createdAt: 0, updatedAt: 0, moduleUrl: this.moduleUrl("t", t.name, t.path) };
 	}
 
-	/** Resolve only artifact and template entries under the allowed roots. */
 	async moduleFile(moduleUrl: string): Promise<string> {
 		const virtual = parseVirtualModuleUrl(moduleUrl);
 		let asked: string;
@@ -254,12 +217,10 @@ export class DaemonContext {
 		return file;
 	}
 
-	/** Source of an artifact or template module, for the Code tab (nothing else is readable). */
 	async moduleSource(moduleUrl: string): Promise<string> {
 		return readFile(await this.moduleFile(moduleUrl), "utf8");
 	}
 
-	/** Transform the entry and its local code dependencies; return the first error, if any. */
 	async compileCheck(file: string, moduleUrl = fsUrl(file)): Promise<string | undefined> {
 		const env = this.server?.environments.client;
 		if (!env) return undefined;
@@ -267,7 +228,6 @@ export class DaemonContext {
 		const virtual = parseVirtualModuleUrl(moduleUrl) && env.moduleGraph.getModuleById(moduleUrl);
 		if (virtual) env.moduleGraph.invalidateModule(virtual);
 		try {
-			// Match Vite's HTTP middleware, which decodes the request before transforming it.
 			const entryUrl = decodeURI(moduleUrl);
 			await env.transformRequest(entryUrl);
 			const entry = await env.moduleGraph.getModuleByUrl(entryUrl);
@@ -283,7 +243,6 @@ export class DaemonContext {
 			const visited = new Set(pending);
 			for (let i = 0; i < pending.length; i++) {
 				const dependency = pending[i];
-				// Raw assets and styles are fetched differently from JavaScript modules.
 				if (!dependency.file || !/\.(?:[cm]?[jt]sx?|json)$/i.test(dependency.file) || /[?&](?:raw|url|inline)(?:&|$)/.test(dependency.url)) continue;
 				const actual = await physical(dependency.file);
 				const templates = inside(templateRoot, actual) || inside(bundledRoot, actual);
@@ -302,12 +261,11 @@ export class DaemonContext {
 		}
 	}
 
-	/** Re-scan newly saved sources and refresh the linked stylesheet in open tabs. */
 	async refreshStyles(): Promise<void> {
 		const env = this.server?.environments.client;
 		if (!env || !this.server) return;
 		const modules = env.moduleGraph.getModulesByFile(normalizePath(join(VIEWER_DIR, "src/styles.css")));
-		if (!modules?.size) return; // The first stylesheet request will scan the new source.
+		if (!modules?.size) return;
 		for (const module of modules) env.moduleGraph.invalidateModule(module);
 		await env.transformRequest("/src/styles.css?direct");
 		this.server.ws.send({ type: "update", updates: [{ type: "css-update", path: "/src/styles.css", acceptedPath: "/src/styles.css", timestamp: Date.now() }] });
@@ -332,15 +290,11 @@ export class DaemonContext {
 					this.runtimeObservations.set(observation.token, observation);
 					this.observableSources.set(written.id, observation);
 
-					// A filesystem update may have reached the browser before this save was ready.
-					// Reload the entry now so a preview can fetch the committed, tagged source.
 					const env = this.server?.environments.client;
 					const module = await env?.moduleGraph.getModuleByUrl(decodeURI(url));
 					if (env && module) await env.reloadModule(module);
 				},
 			});
-			// Publication and cache work are complete. A later save or delete can now
-			// proceed, while this call still accepts reports for its own loaded module.
 			if (observation && waitForRuntimeMs > 0) await new Promise((r) => setTimeout(r, waitForRuntimeMs));
 			return { meta, created, path: artifactPaths(meta.id).entry, compileError, runtimeErrors: observation?.errors ?? [], observed: !!observation };
 		} finally {
@@ -361,7 +315,6 @@ export class DaemonContext {
 		});
 	}
 
-	/** Clear a deleted user template's preview state while its file lock is held. */
 	forgetTemplatePreview(name: string, deleted = true): void {
 		const id = `${TEMPLATE_PREFIX}${name}`;
 		for (const call of this.pendingMcpCalls) if (call.id === id) call.valid = false;
@@ -382,7 +335,6 @@ export class DaemonContext {
 		this.server?.ws.send({ type: "custom", event: TEMPLATE_CHANGED_EVENT, data: { name } });
 	}
 
-	/** Stamp only the bytes read during one published observation. */
 	async loadObservableSource(id: string, read: () => Promise<string>): Promise<{ code: string; token?: string } | undefined> {
 		const observation = this.observableSources.get(id);
 		if (!observation) return;
@@ -399,7 +351,6 @@ export class DaemonContext {
 		if (errors.length > 10) errors.shift();
 	}
 
-	/** Tell open pages that the agent changed a memory scope, so they refetch it. */
 	memoryChanged(scope: string): void {
 		this.server?.ws.send({ type: "custom", event: MEMORY_CHANGED_EVENT, data: { scope } });
 	}
@@ -413,17 +364,13 @@ export class DaemonContext {
 		return lastSeen !== undefined && lastSeen > performance.now() - VIEWING_TTL_MS;
 	}
 
-	// ---- memory ----------------------------------------------------------------------
 
-	/** Validate a memory scope. */
 	scope(scope: unknown): string {
 		assertMemoryScope(scope);
 		return scope;
 	}
 
-	// ---- MCP -------------------------------------------------------------------------
 
-	/** Meta of an artifact or of a template preview (`template-<name>`). */
 	async callerMeta(id: string): Promise<Pick<ArtifactMeta, "id" | "title" | "mcp" | "sessionId"> | undefined> {
 		if (id.startsWith(TEMPLATE_PREFIX)) {
 			const t = await getTemplate(id.slice(TEMPLATE_PREFIX.length), BUNDLED_TEMPLATES_DIR);
@@ -493,7 +440,6 @@ export class DaemonContext {
 		}
 	}
 
-	// ---- export ----------------------------------------------------------------------
 
 	async exportArtifact(id: string, outFile?: string, overwrite = false): Promise<ExportResult> {
 		const meta = await readMeta(id);
@@ -502,7 +448,6 @@ export class DaemonContext {
 		return exportArtifact(this.memory, meta, this.aliases.map(entry), { themeCss: await this.themeCss(), outFile, overwrite, aliasRoots: this.aliases.paths });
 	}
 
-	// ---- design ----------------------------------------------------------------------
 
 	async themeCss(): Promise<string> {
 		const file = join(designDir(), "theme.css");

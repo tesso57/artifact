@@ -1,12 +1,10 @@
 import { cn } from "../../lib/utils";
 
-/** Dates are inclusive calendar dates in YYYY-MM-DD format, independent of time zone. */
 export interface GanttTask {
 	id: string;
 	label: string;
 	start: string;
 	end: string;
-	/** Completion percentage, from 0 to 100. */
 	progress?: number;
 }
 
@@ -17,7 +15,6 @@ function dateValue(value: string): number | undefined {
 	return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) === value ? time : undefined;
 }
 
-/** A read-only, horizontally scrollable timeline. Tasks with invalid dates remain visible. */
 export function GanttChart({ tasks, className, empty = "No tasks.", "aria-label": label = "Gantt chart" }: { tasks: readonly GanttTask[]; className?: string; empty?: string; "aria-label"?: string }) {
 	const rows = tasks.map((task) => {
 		const start = dateValue(task.start);

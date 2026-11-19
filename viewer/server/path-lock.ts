@@ -2,7 +2,6 @@ import { resolve } from "node:path";
 
 const pending = new Map<string, Promise<void>>();
 
-/** Serialize operations on one path within the daemon. */
 export async function withPathLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
 	const key = resolve(path);
 	const previous = pending.get(key) ?? Promise.resolve();

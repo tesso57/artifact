@@ -74,7 +74,6 @@ const MARKDOWN_COMPONENTS: Components = {
 	hr: ({ node: _node, ...props }) => <hr className="border-border my-6" {...props} />,
 };
 
-/** Render Markdown and GitHub-flavored tables, task lists and strikethrough; raw HTML is ignored. */
 export function Markdown({ children, className, onDocumentLink, resolveImage }: { children: string; className?: string; onDocumentLink?: (href: string) => void; resolveImage?: (src: string) => string | undefined }) {
 	return <div className={cn("space-y-4 text-sm leading-7 break-words", className)}>
 		<DocumentLink.Provider value={onDocumentLink}>

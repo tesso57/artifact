@@ -4,10 +4,6 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-/**
- * KPI card: label, big value, optional % delta (green up / red down) and hint.
- * Pass `loading` while the value's query is pending.
- */
 export function StatCard({
 	title,
 	value,
@@ -20,12 +16,10 @@ export function StatCard({
 }: {
 	title: string;
 	value: ReactNode;
-	/** Percent change, e.g. 8.2 or -1.5. */
 	delta?: number;
 	hint?: ReactNode;
 	icon?: LucideIcon;
 	loading?: boolean;
-	/** For metrics where down is good (costs, latency). */
 	invert?: boolean;
 	className?: string;
 }) {

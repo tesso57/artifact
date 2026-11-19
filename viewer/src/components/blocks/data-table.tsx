@@ -21,7 +21,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-/** Features of <DataTable>; build columns with `createColumns<Row>()` so their types match. */
 export const dataTableFeatures = tableFeatures({
 	columnFilteringFeature,
 	globalFilteringFeature,
@@ -34,7 +33,6 @@ export const dataTableFeatures = tableFeatures({
 	sortFns: { alphanumeric: sortFn_alphanumeric },
 });
 
-/** Column helper for <DataTable>: `const col = createColumns<Row>(); const columns = col.columns([...])`. */
 export function createColumns<TRow extends RowData>() {
 	return createColumnHelper<typeof dataTableFeatures, TRow>();
 }
@@ -43,7 +41,6 @@ type ColumnsOf<TRow extends RowData> = ReturnType<ReturnType<typeof createColumn
 
 const EMPTY: never[] = [];
 
-/** Clickable sortable header: `header: ({ column }) => <SortHeader column={column}>Name</SortHeader>`. */
 export function SortHeader({
 	column,
 	children,
@@ -60,10 +57,6 @@ export function SortHeader({
 	);
 }
 
-/**
- * shadcn table driven by TanStack Table v9: search, sorting, pagination, loading
- * skeleton and empty row. Columns come from `createColumns<Row>()`.
- */
 export function DataTable<TRow extends RowData>({
 	data,
 	columns,
@@ -80,17 +73,14 @@ export function DataTable<TRow extends RowData>({
 }: {
 	data: TRow[] | undefined;
 	columns: ColumnsOf<TRow>;
-	/** Show skeleton rows (e.g. `query.isPending`). */
 	loading?: boolean;
 	search?: boolean;
 	searchPlaceholder?: string;
-	/** Rows per page; 0 disables pagination. */
 	pageSize?: number;
 	empty?: ReactNode;
 	initialSort?: { id: string; desc?: boolean };
 	getRowId?: (row: TRow) => string;
 	onRowClick?: (row: TRow) => void;
-	/** Extra controls next to the search box (filters, buttons). */
 	toolbar?: ReactNode;
 	className?: string;
 }) {
@@ -103,7 +93,6 @@ export function DataTable<TRow extends RowData>({
 	const table = useTable({
 		features: dataTableFeatures,
 		columns,
-		// v9 needs a stable array: a fresh `[]` each render would reset the row models.
 		data: data ?? (EMPTY as TRow[]),
 		getRowId,
 		globalFilterFn: "includesString",

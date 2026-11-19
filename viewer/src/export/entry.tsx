@@ -1,4 +1,3 @@
-/** Entry of exported HTML files: mounts one artifact without the viewer chrome. */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentType } from "react";
 import { createRoot } from "react-dom/client";

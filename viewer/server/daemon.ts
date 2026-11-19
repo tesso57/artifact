@@ -1,13 +1,3 @@
-/**
- * The viewer daemon: one per user. Serves every artifact from a single Vite dev server
- * (TanStack Start), owns the SQLite memory, and routes MCP calls to registered pi
- * sessions. Started by the pi extension (detached) or with `npm run dev`.
- *
- *   node viewer/server/daemon.ts [--foreground]
- *
- * State: <state>/viewer.json { pid, port, url, secret, version }; <state>/viewer.lock.
- * Exits after PI_ARTIFACTS_IDLE_MS (default 15 min) without sessions, requests or unused links.
- */
 import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { dirname, join, resolve } from "node:path";
@@ -24,7 +14,6 @@ const foreground = process.argv.includes("--foreground");
 const idleMs = Number(process.env.PI_ARTIFACTS_IDLE_MS) || 15 * 60_000;
 const version = (JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")) as { version: string }).version;
 
-// State (SQLite with memory and MCP results, logs, the secret) is private to the user.
 mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
 try {
 	chmodSync(stateDir(), 0o700);
@@ -39,8 +28,6 @@ if (!acquired) {
 	process.exit(0);
 }
 
-// Runtime copies (npm installs): delete old ones nobody can be using. This daemon holds the
-// lock, so no other daemon runs; copies younger than an hour may be about to be started.
 try {
 	const runtimes = runtimeDir();
 	const mine = resolve(PACKAGE_ROOT);
@@ -52,7 +39,6 @@ try {
 	}
 } catch {}
 
-// Tailwind's scanner must see the roots before its first scan to discover new files later.
 mkdirSync(artifactsDir(), { recursive: true });
 mkdirSync(userTemplatesDir(), { recursive: true });
 const aliases = new RuntimeAliases([artifactsDir(), userTemplatesDir(), BUNDLED_TEMPLATES_DIR]);
@@ -62,8 +48,6 @@ DaemonContext.install(ctx);
 
 const server = await createServer({
 	configFile: join(VIEWER_DIR, "vite.config.ts"),
-	// The runtime is copied outside node_modules for Node's TypeScript loader. Native
-	// config loading also avoids Vite's bundler misreading delimiters in dependency paths.
 	configLoader: "native",
 	root: VIEWER_DIR,
 	server: { port: Number(process.env.PI_ARTIFACTS_PORT) || 5178, strictPort: false },

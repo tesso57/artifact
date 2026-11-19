@@ -1,7 +1,3 @@
-/**
- * Export worker: reads `{ entry, sources }` on stdin, bundles the artifact with Vite in
- * production mode and prints `{ js, css }` as JSON. Spawned by the daemon (export.ts).
- */
 import { bundleArtifact } from "./export.ts";
 
 let input = "";

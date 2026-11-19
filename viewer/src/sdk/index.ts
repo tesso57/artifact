@@ -1,14 +1,3 @@
-/**
- * `@pi/artifact` — the runtime SDK available to every artifact.
- *
- *   import { useMemory, useMcp, callMcp } from "@pi/artifact";
- *
- * Memory is a small SQLite key/value store. By default keys are scoped to the current
- * artifact; pass `{ scope: "shared" }` to share data between artifacts.
- *
- * MCP calls go to a pi session connected to the viewer, so artifacts can use the MCP
- * servers connected to pi. An artifact may only call the tools in its `mcp` allowlist.
- */
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { backend } from "@/sdk/backend";
@@ -20,12 +9,8 @@ import { invalidateMemoryQueries, serializeMemoryWrite, subscribeMemoryChanges }
 export { type ArtifactInfo, useArtifact } from "./context";
 export type { McpCallResult, McpToolInfo } from "../../../shared/protocol.ts";
 
-// ---------------------------------------------------------------------------
-// Memory
-// ---------------------------------------------------------------------------
 
 export interface MemoryOptions {
-	/** Defaults to the current artifact's id. Use "shared" to share across artifacts. */
 	scope?: string;
 }
 
@@ -57,7 +42,6 @@ function useMemoryUpdates(scope: string) {
 	}), [qc, scope]);
 }
 
-/** Imperative memory API. `scope` is required outside of hooks. */
 export const memory = {
 	get: <T>(scope: string, key: string) => backend.memoryGet(scope, key, currentArtifactId()) as Promise<T | undefined>,
 	set: (scope: string, key: string, value: unknown) => {
@@ -74,14 +58,8 @@ export const memory = {
 	list: (scope: string, prefix?: string) => backend.memoryList(scope, prefix, currentArtifactId()),
 };
 
-/** "live" in the viewer, "static" in an exported HTML file (memory in localStorage, MCP from a snapshot). */
 export const runtimeMode = backend.mode;
 
-/**
- * Persistent state, like `useState` but stored in SQLite.
- *
- *   const [todos, setTodos] = useMemory<string[]>("todos", []);
- */
 export function useMemory<T>(
 	key: string,
 	initial: T,
@@ -93,7 +71,6 @@ export function useMemory<T>(
 	const qc = useQueryClient();
 	const queryKey = useMemo(() => memoryKey(scope, key, caller), [scope, key, caller]);
 	const [writeErrors, setWriteErrors] = useState<Map<string, unknown>>(() => new Map());
-	// `initial` is only a default; keep the latest without re-creating callbacks on every render.
 	const initialRef = useRef(initial);
 	initialRef.current = initial;
 	const readValue = useCallback(async () => {
@@ -140,22 +117,17 @@ export function useMemory<T>(
 				catch (error) { setWriteErrors((previous) => new Map(previous).set(`${scope}\u0000${key}`, error)); return; }
 				const update = typeof next === "function" ? next as (p: T) => T | undefined : undefined;
 				let value: T | undefined;
-				// An updater must not be able to mutate either the cached value or the
-				// compare-and-set snapshot before its result has been validated.
 				try {
 					const prev = update && expected.found ? jsonMemoryValue(expected.value) as T : initialRef.current;
 					value = jsonMemoryValue(update ? update(prev) : next as T | undefined);
 				}
 				catch (error) { setWriteErrors((previous) => new Map(previous).set(`${scope}\u0000${key}`, error)); return; }
-				// A read still in flight (e.g. a focus refetch) must not undo this write.
 				void qc.cancelQueries({ queryKey });
-				// Setting undefined deletes the key; the hook then shows `initial` again.
 				const nextCache: MemoryCache<T> = value === undefined ? { found: false } : { found: true, value };
 				qc.setQueryData<MemoryCache<T>>(queryKey, () => nextCache);
 				mutate({ scope, key, caller, initial: initialRef.current, value, expected, update });
 			};
 			if (typeof next === "function" && qc.getQueryData(queryKey) === undefined && qc.getQueryState(queryKey)?.status !== "success") {
-				// A functional update needs the persisted value, not the temporary initial value.
 				void qc.fetchQuery({ queryKey, queryFn: readValue }).then(apply, () => {});
 				return;
 			}
@@ -166,7 +138,6 @@ export function useMemory<T>(
 	return [(query.data?.found ? query.data.value : initial) as T, set, { loading: query.isPending, error: query.error ?? writeErrors.get(`${scope}\u0000${key}`) }];
 }
 
-/** Every entry of a scope (optionally under a key prefix). */
 export function useMemoryList(options: MemoryOptions & { prefix?: string } = {}) {
 	const scope = useScope(options.scope);
 	const caller = useContext(ArtifactContext)?.id;
@@ -177,15 +148,7 @@ export function useMemoryList(options: MemoryOptions & { prefix?: string } = {})
 	});
 }
 
-// ---------------------------------------------------------------------------
-// MCP
-// ---------------------------------------------------------------------------
 
-/**
- * Call an MCP tool through pi. Accepts `"mcp__github__search_issues"`,
- * `"github.search_issues"`, or `("github", "search_issues")`.
- * Throws when the tool reports an error.
- */
 async function callMcpFor<T>(artifactId: string, name: string, args: Record<string, unknown>) {
 	const result = await backend.mcpCall(normalizeMcpToolName(name), args, artifactId);
 	if (result.isError) throw new Error(result.text || `MCP tool ${name} failed`);
@@ -198,21 +161,14 @@ export async function callMcp<T = unknown>(name: string, args: Record<string, un
 	return callMcpFor<T>(artifactId, name, args);
 }
 
-/** Whether a pi session is connected to the viewer (MCP calls need one). */
 export function useMcpStatus() {
 	return useQuery({ queryKey: ["pi-mcp-status"], queryFn: () => backend.mcpStatus(), refetchInterval: 5000 });
 }
 
-/** MCP tools pi can call right now (the artifact may only call those in its allowlist). */
 export function useMcpTools() {
 	return useQuery({ queryKey: ["pi-mcp-tools"], queryFn: () => backend.mcpTools(), staleTime: 30_000 });
 }
 
-/**
- * Query an MCP tool with TanStack Query (cached, refetchable).
- *
- *   const { data, isPending, error, refetch } = useMcp("github.search_issues", { q: "bug" });
- */
 export function useMcp<T = unknown>(
 	name: string,
 	args: Record<string, unknown> = {},
@@ -224,7 +180,6 @@ export function useMcp<T = unknown>(
 		queryKey: ["pi-mcp", artifact.id, artifact.instanceId ?? null, artifact.updatedAt ?? null, artifact.mcp ?? [], normalizeMcpToolName(name), args],
 		queryFn: () => callMcpFor<T>(artifact.id, name, args),
 		staleTime: 60_000,
-		// An error can occur after the tool acted, so automatic repeats are unsafe by default.
 		retry: false,
 		retryOnMount: false,
 		refetchOnMount: false,
@@ -234,7 +189,6 @@ export function useMcp<T = unknown>(
 	});
 }
 
-/** Run an MCP tool on demand (buttons, forms). */
 export function useMcpMutation<T = unknown>(name: string) {
 	const artifact = useContext(ArtifactContext);
 	if (!artifact) throw new Error("useMcpMutation() must be used inside an artifact");

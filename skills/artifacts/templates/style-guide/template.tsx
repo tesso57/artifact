@@ -1,7 +1,3 @@
-/**
- * Template: style guide — renders the design system's tokens and components so a
- * theme change (<project>/.pi/_artifacts/.design/theme.css) can be reviewed in one place.
- */
 import { Bell, Inbox } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { axisProps, CHART_COLORS, ChartCard, EmptyState, ErrorState, Grid, LoadingState, Page, PageHeader, Section, StatCard, gridProps } from "@/components/blocks";
@@ -88,7 +84,6 @@ export default function StyleGuide() {
 						<CartesianGrid {...gridProps} />
 						<XAxis dataKey="name" {...axisProps} />
 						<YAxis width={24} {...axisProps} />
-						{/* One bar per series color */}
 						<Bar dataKey="value" radius={4} fill="var(--chart-1)" />
 					</BarChart>
 				</ChartCard>

@@ -3,7 +3,6 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 type Command = Parameters<ExtensionAPI["registerCommand"]>[1];
 type Responses = { confirm?: boolean[]; select?: (string | undefined)[] };
 
-/** Command-focused Pi double, adapted from pi-extension-template. */
 export function createMockPi(responses: Responses = {}) {
 	const commands = new Map<string, Command>();
 	const dialogs: ({ kind: "select"; title: string; options: string[] } | { kind: "confirm"; title: string; message: string })[] = [];

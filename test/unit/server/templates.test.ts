@@ -15,7 +15,7 @@ beforeEach(async () => {
 	await mkdir(join(bundled, "dash"), { recursive: true });
 	await writeFile(join(bundled, "dash", "template.tsx"), "// bundled");
 	await writeFile(join(bundled, "dash", "template.json"), JSON.stringify({ ...meta, title: "Dash" }));
-	await mkdir(join(bundled, "broken"), { recursive: true }); // no files: skipped
+	await mkdir(join(bundled, "broken"), { recursive: true });
 });
 afterEach(async () => {
 	await rm(join(bundled, ".."), { recursive: true, force: true });

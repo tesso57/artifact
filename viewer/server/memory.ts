@@ -6,7 +6,6 @@ import { SHARED_SCOPE } from "../../shared/ids.ts";
 import { memoryDbPath } from "../../shared/paths.ts";
 import { memoryMatches, type McpCallResult, type MemorySnapshot } from "../../shared/protocol.ts";
 
-// Loaded lazily so its ExperimentalWarning (older Node) only fires when memory is used.
 const require = createRequire(import.meta.url);
 
 interface MemoryEntry {
@@ -16,12 +15,6 @@ interface MemoryEntry {
 	updatedAt: number;
 }
 
-/**
- * The daemon's SQLite store (the only writer):
- * - `memory`: key/value per scope (an artifact id, or "shared")
- * - `mcp_cache`: latest MCP result per artifact call, replayed by HTML exports
- * - `shared_reads`: which shared keys each artifact read, so exports embed only those
- */
 export class Memory {
 	private db: DatabaseSyncType;
 
@@ -52,8 +45,6 @@ export class Memory {
 				PRIMARY KEY (artifact_id, key)
 			);
 		`);
-		// Older versions recorded "*" for a list read. Preserve the keys included by
-		// that marker now, without silently including keys created after this upgrade.
 		if (this.db.prepare("SELECT 1 FROM shared_reads WHERE key = '*' LIMIT 1").get()) {
 			this.db.exec(`
 				BEGIN IMMEDIATE;
@@ -92,7 +83,6 @@ export class Memory {
 		return this.db.prepare("DELETE FROM memory WHERE scope = ? AND key = ?").run(scope, key).changes > 0;
 	}
 
-	/** Apply an update only if the current JSON value still matches the caller's read. */
 	compareAndSet(scope: string, key: string, expected: MemorySnapshot, value: unknown): boolean {
 		this.db.exec("BEGIN IMMEDIATE");
 		try {
@@ -114,16 +104,12 @@ export class Memory {
 		return rows.map((r) => ({ scope, key: Buffer.from(r.key).toString("utf8"), value: JSON.parse(r.value), updatedAt: r.updated_at }));
 	}
 
-	/** Remember that `artifactId` read the shared `key` (or every shared key, for `*`). */
 	noteSharedRead(artifactId: string, key: string): void {
 		this.db.prepare("INSERT OR IGNORE INTO shared_reads (artifact_id, key) VALUES (?, ?)").run(artifactId, key);
 	}
 
-	/** Shared values this artifact read, without loading unrelated values. */
 	listReadShared(artifactId: string): MemoryEntry[] {
 		if (this.db.prepare("SELECT 1 FROM shared_reads WHERE artifact_id = ? AND key = '*'").get(artifactId)) return this.list(SHARED_SCOPE);
-		// Older Node SQLite releases truncate TEXT values at embedded NUL; BLOB reads preserve them.
-		// CROSS JOIN keeps the small read set first; an ordinary JOIN may scan every shared key.
 		const rows = this.db.prepare(`
 			SELECT CAST(memory.key AS BLOB) AS key, memory.value, memory.updated_at
 			FROM shared_reads AS reads
@@ -159,7 +145,6 @@ export class Memory {
 		return Object.fromEntries(rows.map((r) => [r.call, JSON.parse(r.result) as McpCallResult]));
 	}
 
-	/** Everything stored for an artifact (memory scope, MCP cache, shared reads). */
 	forget(artifactId: string): void {
 		this.db.exec("BEGIN IMMEDIATE");
 		try {

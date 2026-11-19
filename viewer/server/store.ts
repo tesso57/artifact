@@ -15,7 +15,6 @@ export function artifactPaths(id: string, root = artifactsDir()) {
 }
 
 export interface WriteArtifactInput {
-	/** Replace this artifact. Omit to create a new one with an id derived from the title. */
 	id?: string;
 	title: string;
 	description?: string;
@@ -74,8 +73,6 @@ export async function writeArtifact(
 				throw new Error(`Cannot write artifact "${id}": existing metadata is missing or invalid; preserve and repair its files first`);
 			}
 		}
-		// Code before meta: the gallery lists artifacts by meta.json, so it never sees one without code.
-		// The code is written in place (not renamed over): Vite's watcher must see a "change" to hot-reload.
 		const oldCode = await readExistingFile(paths.entry);
 		try {
 			await writeSourceFile(paths.entry, input.code);
@@ -150,7 +147,6 @@ export async function readMeta(id: string, root = artifactsDir()): Promise<Artif
 	}
 }
 
-/** Metadata for an artifact that has a regular source file and can be opened. */
 export async function readAvailableMeta(id: string, root = artifactsDir()): Promise<ArtifactMeta | undefined> {
 	const paths = artifactPaths(id, root);
 	try {
@@ -160,7 +156,6 @@ export async function readAvailableMeta(id: string, root = artifactsDir()): Prom
 	} catch { return undefined; }
 }
 
-/** All artifacts, most recently updated first. */
 export async function listArtifacts(root = artifactsDir()): Promise<ArtifactMeta[]> {
 	if (!existsSync(root)) return [];
 	const entries = await readdir(root, { withFileTypes: true });

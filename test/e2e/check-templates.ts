@@ -1,8 +1,3 @@
-/**
- * Render every bundled template (at /t/<name>) in light and dark, through the real viewer
- * daemon, and fail on load or render errors.
- *   node test/e2e/check-templates.ts [screenshot-dir]
- */
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { launchBrowser } from "./browser.ts";
@@ -31,12 +26,10 @@ try {
 			const errors: string[] = [];
 			page.on("pageerror", (e: Error) => errors.push(e.message));
 			page.on("console", (m: { type(): string; text(): string }) => {
-				// Templates without a pi session show MCP "offline" states; that is expected.
 				if (m.type() === "error" && !/No pi session|pi session is connected|MCP/.test(m.text())) errors.push(m.text());
 			});
 			await page.goto(await daemon.link(`/t/${name}`), { waitUntil: "networkidle" });
 			await page.waitForTimeout(1200);
-			// Mermaid diagrams must render as SVG (they load lazily).
 			if (name === "diagram") {
 				await page.locator("[data-mermaid] svg").first().waitFor({ timeout: 20000 }).catch(() => errors.push("no Mermaid SVG rendered"));
 			}

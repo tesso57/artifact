@@ -1,7 +1,3 @@
-/**
- * SDK backend of exported HTML files: no server. Memory starts from the snapshot and
- * persists in localStorage; MCP calls replay the results captured at export time.
- */
 import { assertMemoryKey, assertMemoryScope } from "../../../shared/ids.ts";
 import { mcpCallKey, memoryMatches } from "../../../shared/protocol.ts";
 import { notifyMemoryChanged } from "../sdk/memory-sync";
@@ -22,7 +18,6 @@ function load(): Rows {
 		const saved = localStorage.getItem(storageKey());
 		if (saved !== null) {
 			const parsed: unknown = JSON.parse(saved);
-			// Saved state is a complete copy, including deletions from the snapshot.
 			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.values(parsed).some((row) =>
 				!row || typeof row !== "object" || Array.isArray(row) || !Object.hasOwn(row, "value") ||
 				typeof (row as { updatedAt?: unknown }).updatedAt !== "number" || !Number.isFinite((row as { updatedAt: number }).updatedAt),
@@ -185,8 +180,6 @@ export const backend: Backend = {
 			const bytes = encoder.encode(key);
 			if (prefixBytes.every((byte, i) => bytes[i] === byte)) out.push({ row: { key, value: copyValue(v.value), updatedAt: v.updatedAt }, bytes });
 		}
-		// SQLite orders TEXT keys by their UTF-8 bytes, which differs from JS string
-		// comparison for supplementary characters such as emoji.
 		return out.sort((a, b) => {
 			const length = Math.min(a.bytes.length, b.bytes.length);
 			for (let i = 0; i < length; i++) if (a.bytes[i] !== b.bytes[i]) return a.bytes[i] - b.bytes[i];

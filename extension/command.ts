@@ -12,7 +12,6 @@ async function list(runtime: ArtifactsRuntime): Promise<ArtifactMeta[]> {
 	return runtime.daemon.api<ArtifactMeta[]>("/artifacts");
 }
 
-/** Ask which artifact to open; `null` means the gallery, `undefined` means cancelled. */
 async function pickArtifact(runtime: ArtifactsRuntime, ctx: ExtensionCommandContext): Promise<string | null | undefined> {
 	const all = await list(runtime);
 	const labels = [GALLERY, ...all.map((a) => `${a.title}  (${a.id})`)];

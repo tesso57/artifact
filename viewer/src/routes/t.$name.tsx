@@ -5,7 +5,6 @@ import { ArtifactView } from "@/components/artifact-view";
 import { getTemplatePreviewFn } from "@/server/fns";
 import { TEMPLATE_CHANGED_EVENT } from "@/lib/events";
 
-/** Preview of a template, rendered like an artifact (memory scope `template-<name>`). */
 export const Route = createFileRoute("/t/$name")({
 	ssr: false,
 	loader: ({ params }) => getTemplatePreviewFn({ data: params.name }),

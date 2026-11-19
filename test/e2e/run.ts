@@ -1,9 +1,3 @@
-/**
- * End-to-end: real pi SDK sessions (faux model) load this package like `pi install`, write an
- * artifact, and a browser uses it through the per-user viewer daemon:
- *   node test/e2e/run.ts            (this checkout)
- *   PI_ARTIFACTS_PACKAGE=… node …   (an installed copy, see pack.ts)
- */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -15,7 +9,6 @@ import { openLink, PACKAGE, startPi } from "./pi.ts";
 import { isolateTestEnvironment } from "./environment.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
-// Keep test artifacts, memory and the daemon's state out of ~/.pi/artifacts.
 const customTemplates = Boolean(process.env.PI_ARTIFACTS_TEMPLATES);
 const testEnvironment = isolateTestEnvironment(process.env);
 process.env.PI_ARTIFACTS_PORT ??= "5390";
@@ -53,7 +46,6 @@ try {
 	if (first.skills.join() !== "artifact-design-system,artifact-template-creator,artifacts") throw new Error(`skills: ${first.skills}`);
 	step("package manifest loads the extension and 3 skills");
 
-	// 1. Write an artifact that uses MCP (allowlisted) and memory.
 	first.respond([
 		fauxAssistantMessage(fauxToolCall("artifact_write", { id, title: "MCP demo", description: "Chart + reverse via echo", code: demo, mcp: ["echo.*"] })),
 		fauxAssistantMessage("Done."),
@@ -233,7 +225,6 @@ try {
 		console.log("Navigation reload diagnostics:", JSON.stringify(Object.fromEntries(reloadCounts)));
 	}
 
-	// A subagent can inspect an artifact, then give its parent a fresh one-use link.
 	const metaBeforeLink = readFileSync(join(dir, id, "meta.json"), "utf8");
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_link", { id })), fauxAssistantMessage("ok")]);
 	await first.prompt("Get a fresh link for the parent");
@@ -393,7 +384,6 @@ try {
 	await routePage.close();
 	step("route changes avoid stale content and hot reload preserves component state");
 
-	// A nested module fails before the browser asks for it, so artifact_write must report it.
 	const nestedErrorDir = join(dir, "nested-compile-error");
 	mkdirSync(nestedErrorDir, { recursive: true });
 	writeFileSync(join(nestedErrorDir, "helper.ts"), 'export { broken } from "./nested";');
@@ -403,14 +393,12 @@ try {
 	await first.prompt("Create an artifact with an invalid helper");
 	const nestedError = first.lastResult("artifact_write");
 	if (!nestedError.isError || !nestedError.text.includes("nested.ts")) throw new Error("artifact_write did not report the nested module compile error");
-	// A valid cycle must terminate the dependency walk after the error is fixed.
 	writeFileSync(join(nestedErrorDir, "nested.ts"), 'import "./helper"; export const broken = "fixed";');
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "nested-compile-error", title: "Nested compile error", code: nestedCode })), fauxAssistantMessage("ok")]);
 	await first.prompt("Fix the invalid helper and rewrite the artifact");
 	if (first.lastResult("artifact_write").isError) throw new Error("artifact_write did not clear the fixed nested compile error");
 	step("artifact_write reports local dependency errors and accepts a fixed cycle");
 
-	// Relative source, stylesheet and asset imports must work even if the root has URL delimiters.
 	const relativeDir = join(dir, "relative-demo");
 	mkdirSync(relativeDir, { recursive: true });
 	const relativeSecretDir = temporaryDir("pi-relative-secret-");
@@ -500,7 +488,6 @@ try {
 	await relativePage.close();
 	step("relative TS, JSON, Markdown, CSS and images work in viewer and offline export");
 
-	// A set of Markdown snapshots can navigate among documents without network access.
 	const docsAssetDir = join(dir, "markdown-documents");
 	mkdirSync(docsAssetDir, { recursive: true });
 	writeFileSync(join(docsAssetDir, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"></svg>');
@@ -598,10 +585,6 @@ try {
 	await docsPage.close();
 	step("linked Markdown documents navigate in the viewer and offline export");
 
-	// Artifacts (any script in the page) cannot read real files outside the viewer's roots:
-	// next to the package (e.g. a home folder holding a checkout), in temp, or daemon state.
-	// (When installed, the package's parent is the dependency folder, which is served on
-	// purpose; probe the folder that holds it instead.)
 	const parent = basename(dirname(PACKAGE)) === "node_modules" ? dirname(dirname(PACKAGE)) : dirname(PACKAGE);
 	const besidePackage = join(parent, `.pi-artifacts-probe-${process.pid}.txt`);
 	const probeDir = temporaryDir("pi-probe-");
@@ -650,7 +633,6 @@ try {
 	await page.getByTestId("history").getByText("ip olleh").waitFor({ timeout: 20000 });
 	step("MCP mutation + SQLite memory survive a reload");
 
-	// The content blocks must also survive a standalone export, including Markdown's dependencies.
 	const plan = readFileSync(join(PACKAGE, "skills/artifacts/templates/project-plan/template.tsx"), "utf8");
 	first.respond([
 		fauxAssistantMessage(fauxToolCall("artifact_write", { id: "project-plan", title: "Project plan", code: plan })),
@@ -808,7 +790,6 @@ try {
 	await deletionObserver.close();
 	step("deleting an artifact refreshes its memory in another open artifact");
 
-	// Writes from the browser should refresh memory lists in this and other tabs.
 	const memoryDemo = `import { useMemory, useMemoryList } from "@pi/artifact";
 export default function MemoryDemo() {
   const [value, setValue, state] = useMemory("count", 0);
@@ -821,7 +802,6 @@ export default function MemoryDemo() {
 	const memoryPage = await browser.newPage();
 	const otherPage = await browser.newPage();
 	await memoryPage.goto(memoryLink, { waitUntil: "networkidle" });
-	// Each browser context needs its own login token.
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id: "memory-sync", title: "Memory sync", code: memoryDemo })), fauxAssistantMessage("ok")]);
 	await first.prompt("Open the memory sync demo again");
 	await otherPage.goto(openLink(first.lastResult("artifact_write").text), { waitUntil: "networkidle" });
@@ -1070,7 +1050,6 @@ export default function MemoryDemo() {
 	if (!(await longKey.evaluate((element) => element.getBoundingClientRect().width <= 240 && element.scrollWidth <= element.clientWidth))) throw new Error("long memory key expands or overflows its column");
 	await memoryErrorPage.setViewportSize({ width: 320, height: 700 });
 	const memoryRegion = memoryErrorPage.getByRole("region", { name: "Memory entries" });
-	// Force a wide table to exercise keyboard access when content or zoom causes overflow.
 	await memoryRegion.locator("table").evaluate((element) => { element.style.minWidth = "600px"; });
 	const memorySize = await memoryRegion.evaluate((element) => ({ width: element.clientWidth, scrollWidth: element.scrollWidth, left: element.scrollLeft }));
 	if (memorySize.scrollWidth <= memorySize.width) throw new Error(`memory test needs horizontal overflow: ${JSON.stringify(memorySize)}`);
@@ -1108,7 +1087,6 @@ export default function MemoryDemo() {
 	const firstSnapshot = JSON.parse(JSON.parse(firstMatch[1]));
 	const secondSnapshot = JSON.parse(JSON.parse(secondMatch[1]));
 	if (!firstSnapshot.snapshotId || !secondSnapshot.snapshotId || firstSnapshot.snapshotId === secondSnapshot.snapshotId) throw new Error("exports did not get distinct identities");
-	// Reproduce identical clock milliseconds while keeping the real export identities.
 	secondSnapshot.exportedAt = firstSnapshot.exportedAt;
 	const snapshotLiteral = JSON.stringify(JSON.stringify(secondSnapshot)).replace(/</g, "\\u003c");
 	writeFileSync(secondPath, secondHtml.replace(snapshotPattern, () => `<script>window.__PI_ARTIFACT__ = JSON.parse(${snapshotLiteral});</script>`));
@@ -1351,7 +1329,6 @@ export default function MemoryDemo() {
 	await snapshotLive.close();
 	step("memory.set snapshots its input live and offline");
 
-	// An async callback from the first save can fail after the next save is visible.
 	const runtimeState = JSON.parse(readFileSync(join(dir, ".state", "viewer.json"), "utf8"));
 	const saveRuntime = async (code: string) => {
 		const response = await fetch(`${runtimeState.url}/__pi/api/artifacts/write`, {
@@ -1493,7 +1470,6 @@ export default function RuntimeOverlap() { return <p>{tagged ? "Older revision r
 	if (missingExport.isError || !/0 shared key\(s\)/.test(missingExport.text)) throw new Error(`unobserved shared value was exported: ${missingExport.text}`);
 	step("a previously missing shared key is not exported until its value is read");
 
-	// 2. Runtime errors in an open tab come back to the agent.
 	first.respond([
 		fauxAssistantMessage(
 			fauxToolCall("artifact_write", { id, title: "MCP demo", code: 'export default function Broken() { throw new Error("boom from render"); }', mcp: ["echo.*"] }),
@@ -1514,7 +1490,6 @@ export default function RuntimeOverlap() { return <p>{tagged ? "Older revision r
 	if (first.lastResult("artifact_write").isError) throw new Error(first.lastResult("artifact_write").text);
 	await page.getByText("★ 1234").waitFor({ timeout: 30000 });
 
-	// 3. The allowlist is enforced.
 	first.respond([
 		fauxAssistantMessage(
 			fauxToolCall("artifact_write", {
@@ -1525,7 +1500,6 @@ export default function RuntimeOverlap() { return <p>{tagged ? "Older revision r
 		fauxAssistantMessage("ok"),
 	]);
 	await first.prompt("Write an artifact without an allowlist");
-	// Navigate within the same viewer: its QueryClient survives the route change.
 	const mcpDiagnostics: string[] = [];
 	const mcpName = (url: string) => {
 		const token = new URL(url).pathname.split("/").at(-1) ?? "";
@@ -1585,7 +1559,6 @@ export default function RuntimeOverlap() { return <p>{tagged ? "Older revision r
 	if (permissionExport.isError || !/0 MCP result/.test(permissionExport.text)) throw new Error(`revoked MCP result was exported: ${permissionExport.text}`);
 	step("export excludes MCP results for revoked tools");
 
-	// Tools that are not read-only need approval; without a UI (this SDK session) it is declined.
 	first.respond([
 		fauxAssistantMessage(
 			fauxToolCall("artifact_write", {
@@ -1603,7 +1576,6 @@ export default function RuntimeOverlap() { return <p>{tagged ? "Older revision r
 	await writer.close();
 	step("non-read-only MCP tools need approval (declined without a UI)");
 
-	// 4. The agent reads what the artifact stored.
 	first.respond([fauxAssistantMessage(fauxToolCall("artifact_memory", { action: "get", scope: id, key: "history" })), fauxAssistantMessage("ok")]);
 	await first.prompt("What did I reverse?");
 	if (!first.lastResult("artifact_memory").text.includes("ip olleh")) throw new Error("memory not visible to the agent");
@@ -1621,7 +1593,6 @@ export default function RuntimeOverlap() { return <p>{tagged ? "Older revision r
 	if (memoryResults.length !== 4 || memoryResults[0].isError || !memoryResults[1].isError || !memoryResults[1].text.includes("value is required") || memoryResults[2].isError || memoryResults[2].text !== "null" || memoryResults[3].isError || !memoryResults[3].text.includes("No value found")) throw new Error(`memory presence results: ${JSON.stringify(memoryResults)}`);
 	step("artifact_memory distinguishes stored null and missing keys");
 
-	// 5. Export: one file, embeds own memory and cached MCP results, reports what it embeds.
 	const priorHistory = await page.getByTestId("history").locator("li").count();
 	await page.getByRole("button", { name: "Reverse" }).click();
 	await page.waitForFunction((count) => document.querySelectorAll('[data-testid="history"] li').length > count, priorHistory, { timeout: 10000 });
@@ -1677,7 +1648,6 @@ export default function ReplayDemo() {
 	await replayOffline.close();
 	step("offline MCP replay is isolated from caller mutations");
 
-	// Mermaid diagrams render in the viewer and in an offline export.
 	first.respond([
 		fauxAssistantMessage(
 			fauxToolCall("artifact_write", {
@@ -1700,7 +1670,6 @@ export default function ReplayDemo() {
 	await offlineDiagram.close();
 	step("Mermaid diagrams render in the viewer and offline in an export");
 
-	// 6. Templates: list, save (compile-checked) and preview.
 	first.respond([
 		fauxAssistantMessage(fauxToolCall("artifact_template", { action: "list" })),
 		fauxAssistantMessage(
@@ -1782,8 +1751,6 @@ export default function ReplayDemo() {
 		step("nested template imports retain their relative paths");
 	}
 
-	// 7. Sessions: a second pi session joins the same viewer; after the first quits, the
-	//    viewer keeps running and MCP is routed to the second session.
 	second = await startPi();
 	second.respond([fauxAssistantMessage(fauxToolCall("artifact_write", { id, title: "MCP demo", code: demo, mcp: ["echo.*"] })), fauxAssistantMessage("ok")]);
 	await second.prompt("Refresh the demo");
@@ -1795,7 +1762,6 @@ export default function ReplayDemo() {
 	if (pageErrors.length) throw new Error(`page errors: ${pageErrors.join("; ")}`);
 	step("viewer survives the first session; MCP routes to the second");
 
-	// Valid local CSS imports must keep working while blocked imports stay private.
 	{
 		const safeDir = join(dir, "css-safe");
 		mkdirSync(safeDir, { recursive: true });
@@ -1813,7 +1779,6 @@ export default function ReplayDemo() {
 		if (value !== "SAFE_MARKER") throw new Error(`valid local CSS was not applied: ${value}`);
 	}
 
-	// CSS @import must not bypass Vite's filesystem restrictions through a symlink.
 	const cssSecretDir = temporaryDir("pi-css-secret-");
 	const cssArtifactDir = join(dir, "css-escape");
 	mkdirSync(cssArtifactDir, { recursive: true });
@@ -1843,7 +1808,6 @@ export default function ReplayDemo() {
 	if (navigationEvents.length) console.error("Recent navigation events:\n" + navigationEvents.join("\n"));
 } finally {
 	await browser?.close().catch(() => {});
-	// Stop the daemon so the test leaves nothing running.
 	try {
 		const state = JSON.parse(readFileSync(join(dir, ".state", "viewer.json"), "utf8"));
 		await fetch(`${state.url}/__pi/api/shutdown`, { method: "POST", headers: { "x-pi-artifacts-secret": state.secret } });

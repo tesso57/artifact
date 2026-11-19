@@ -9,7 +9,6 @@ export function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** Destructive alert with an optional retry button. */
 export function ErrorState({ error, title = "Something went wrong", onRetry, onDismiss, className }: { error: unknown; title?: string; onRetry?: () => void; onDismiss?: () => void; className?: string }) {
 	return (
 		<Alert variant="destructive" className={className}>
@@ -30,7 +29,6 @@ export function ErrorState({ error, title = "Something went wrong", onRetry, onD
 	);
 }
 
-/** Muted placeholder for "nothing here yet". */
 export function EmptyState({ title = "Nothing here yet", description, icon, action, className }: { title?: string; description?: ReactNode; icon?: ReactNode; action?: ReactNode; className?: string }) {
 	return (
 		<div className={cn("flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-10 text-center", className)}>
@@ -42,7 +40,6 @@ export function EmptyState({ title = "Nothing here yet", description, icon, acti
 	);
 }
 
-/** Default loading placeholder: a few skeleton lines. */
 export function LoadingState({ lines = 3, className }: { lines?: number; className?: string }) {
 	return (
 		<div className={cn("space-y-2", className)} aria-busy>
@@ -56,11 +53,6 @@ export function LoadingState({ lines = 3, className }: { lines?: number; classNa
 const defaultIsEmpty = (data: unknown) =>
 	data == null || (Array.isArray(data) && data.length === 0) || (typeof data === "object" && !Array.isArray(data) && Object.keys(data as object).length === 0);
 
-/**
- * Render a TanStack Query result with consistent shadcn loading / error / empty states.
- *
- *   <QueryState query={useQuery(...)}>{(rows) => <List rows={rows} />}</QueryState>
- */
 export function QueryState<T>({
 	query,
 	children,
@@ -69,7 +61,6 @@ export function QueryState<T>({
 	isEmpty = defaultIsEmpty,
 	errorTitle,
 }: {
-	/** A `useQuery` result (or anything with the same fields). */
 	query: { data: T | undefined; error: unknown; isPending: boolean; refetch: () => unknown };
 	children: (data: T) => ReactNode;
 	loading?: ReactNode;
@@ -88,7 +79,6 @@ export function QueryState<T>({
 	return <>{children(data)}</>;
 }
 
-/** Inline error for a mutation (form submit, button action), or nothing. */
 export function MutationError({ mutation, title = "Action failed" }: { mutation: { error: unknown; reset: () => void }; title?: string }) {
 	if (!mutation.error) return null;
 	return <ErrorState error={mutation.error} title={title} onDismiss={() => mutation.reset()} />;

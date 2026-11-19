@@ -12,11 +12,6 @@ import { validateCssReferences } from "./css-guard.ts";
 const SOURCE_PLACEHOLDER = '@source "PI_ARTIFACTS_SOURCES";';
 const outsideRoots = (file: string) => new Error(`File is outside the allowed viewer roots: ${file}\nTo include intended content, copy it into the artifact directory and use a relative import. External symlink targets are also blocked; copied content can be visible in the viewer and exports.`);
 
-/**
- * - points Tailwind at artifact sources (`@source "PI_ARTIFACTS_SOURCES"` in styles.css)
- * - with a daemon context: authentication, security headers, the `/__pi/*` API,
- *   and change notifications for artifacts and the design system's theme.css
- */
 export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: string[]; ctx?: DaemonContext; virtualSource?: { id: string; file: string } }): Plugin {
 	const virtualFiles = new Map<string, string>();
 	if (virtualSource) virtualFiles.set(virtualSource.id, virtualSource.file);
@@ -37,8 +32,6 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 		const file = virtualFiles.get(id) ?? id.split("?")[0];
 		if (!isAbsolute(file)) return false;
 		const actual = await canonical(file);
-		// Shared files anywhere under a source root need the same checks as artifact entries.
-		// A runtime package nested under the artifact root is trusted code.
 		return sourceRoots.some((root) => inside(root, actual) &&
 			(root !== artifactRoot ||
 				!(packageRoot !== artifactRoot && inside(artifactRoot, packageRoot) && inside(packageRoot, actual))));
@@ -51,8 +44,6 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 		return file;
 	};
 	const checkFile = async (id: string) => {
-		// A virtual entry's real filename can itself contain '?'; only strip a query
-		// after first recognizing the complete, already validated physical path.
 		const virtualFile = [...virtualFiles.values()].find((file) => id === file || id.startsWith(`${file}?`));
 		return checkPhysicalFile(virtualFile ?? id.split("?")[0]);
 	};
@@ -76,8 +67,6 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 		enforce: "pre",
 		async configResolved(config) {
 			const allow = (await Promise.all(config.server.fs.allow.map(async (root) => [resolve(root), await canonical(root)]))).flat();
-			// Vite adds resolved imports to safeModulePaths; that shortcut must not expand
-			// the explicit roots while validating an untrusted artifact's dependencies.
 			policy = { ...config, safeModulePaths: new Set<string>(), server: { ...config.server, fs: { ...config.server.fs, strict: true, allow: allow.map((path) => path.replaceAll("\\", "/")) } } } as ResolvedConfig;
 			resolveCssImport = config.createResolver({ extensions: [".css"], mainFields: ["style"], conditions: ["style", "development|production"], tryIndex: false, preferRelative: true });
 			resolveCssUrl = config.createResolver({ preferRelative: true, tryIndex: false, extensions: [] });
@@ -90,8 +79,6 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 			if (ctx && parseVirtualModuleUrl(id)) return id;
 			if (!importer || !(await untrusted(importer))) return;
 			if (id.startsWith("file:")) throw new Error("File URLs are not allowed in artifact imports");
-			// Vite may interpret '?' or '#' inside an absolute filename as a URL delimiter
-			// before resolving it. Check an existing raw-import target before that happens.
 			if (isAbsolute(id) && id.endsWith("?raw")) {
 				const file = await realpath(id.slice(0, -4)).catch(() => undefined);
 				if (file) await checkPhysicalFile(file);
@@ -129,8 +116,6 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 			});
 			if (!source) return virtual ? readFile(file, "utf8") : undefined;
 			if (!source.token) return source.code;
-			// Use the executed URL (including Vite's HMR timestamp). An error from
-			// an older module can arrive after Fast Refresh replaced its component.
 			const register = `__piObserve_${source.token.replaceAll("-", "")}`;
 			const prelude = `import { registerRuntimeObservation as ${register} } from "/src/lib/runtime-observation.ts"; ${register}(import.meta.url, ${JSON.stringify(source.token)});\n`;
 			const start = source.code.startsWith("#!") ? source.code.indexOf("\n") + 1 : 0;
@@ -169,7 +154,6 @@ export function piArtifactsPlugin({ sources, ctx, virtualSource }: { sources: st
 					return resolved.split("?")[0];
 				});
 			}
-			// Only the CSS source itself — not `styles.css?url`, which is a JS module.
 			if (!id.split("?")[0].endsWith("/src/styles.css") || !code.includes(SOURCE_PLACEHOLDER)) return;
 			const lines = sources.map((s) => `@source ${JSON.stringify(s.replaceAll("\\", "/"))};`).join("\n");
 			return code.replace(SOURCE_PLACEHOLDER, lines);

@@ -1,11 +1,3 @@
-/**
- * The MCP bridge: a loopback HTTP server inside pi that the viewer daemon calls to run
- * MCP tools for artifacts. Only `mcp__*` tools can be called. A tool runs without asking
- * only when its server marks it read-only *and* closed-world; anything else needs the
- * user's approval once per tool in this session. (Approval is not keyed by artifact: all
- * artifacts share one origin, so the calling artifact's id is a claim, not a proof.)
- * Calls go through `ctx.executeTool`, so pi's hooks and permission gates apply as well.
- */
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -18,7 +10,6 @@ import {
 	parseMcpToolName,
 } from "../shared/protocol.ts";
 
-/** The subset of pi's tool context the bridge needs (`ctx.tools` / `ctx.executeTool`). */
 export interface ToolRunner {
 	readonly tools: readonly { name: string; description: string; parameters: unknown }[];
 	executeTool(
@@ -36,16 +27,11 @@ export interface ToolListing {
 }
 
 interface BridgeOptions {
-	/** Latest tool context captured from an artifact tool call, if any. */
 	getRunner(): ToolRunner | undefined;
-	/** Every tool known to pi, with annotations (for listing and the read-only check). */
 	listAllTools(): ToolListing[];
-	/** Ask the user whether an artifact may run a tool that can change things. */
 	confirm?(req: BridgeCallRequest): Promise<boolean>;
-	/** Called for every MCP call (for the TUI status). */
 	onCall?(req: BridgeCallRequest): void;
 	timeoutMs?: number;
-	/** How long a call waits for its MCP server to connect (its tool to appear). Default 15s. */
 	connectWaitMs?: number;
 }
 
@@ -57,7 +43,6 @@ function toInfo(t: ToolListing): McpToolInfo | undefined {
 	return { name: t.name, ...parts, description: t.description, inputSchema: t.parameters, readOnly: !!t.annotations?.readOnlyHint };
 }
 
-/** Safe to run unasked: the server says it only reads, and only from a closed world. */
 function runsWithoutApproval(t: ToolListing | undefined): boolean {
 	return t?.annotations?.readOnlyHint === true && t.annotations.openWorldHint === false;
 }
@@ -69,11 +54,6 @@ function textOf(content: unknown[] | undefined): string {
 		.join("\n");
 }
 
-/**
- * pi's MCP tools return the whole MCP `CallToolResult` (`{ content, structuredContent?, isError? }`)
- * as their `structuredContent`. Use the server's own `structuredContent` when it sent one, else
- * JSON-looking text.
- */
 function checkedJsonNumber(value: unknown): unknown {
 	if (typeof value === "number" && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) {
 		throw new Error("JSON number cannot be represented safely");
@@ -99,8 +79,6 @@ function parseData(text: string, structured: unknown): unknown {
 	}
 	const trimmed = text.trim();
 	try {
-		// Node 22.19+ exposes the original primitive token to the reviver. It lets us
-		// distinguish a real zero from a nonzero exponent rounded down to zero.
 		const parse = JSON.parse as unknown as (text: string, reviver: (key: string, value: unknown, context?: { source?: string }) => unknown) => unknown;
 		return parse(trimmed, (_key, value, context) => {
 			if (value === 0 && context?.source && /[1-9]/.test(context.source.split(/[eE]/, 1)[0])) throw new Error("JSON number underflows");
@@ -147,7 +125,6 @@ async function waitForTool<T>(operation: Promise<T>, signal: AbortSignal): Promi
 }
 
 function createBridgeHandler(token: string, opts: BridgeOptions, shutdownSignal: AbortSignal) {
-	/** Tools the user approved for artifacts in this session. */
 	const approved = new Set<string>();
 	const pendingApprovals = new Map<string, Promise<boolean>>();
 
@@ -190,7 +167,6 @@ function createBridgeHandler(token: string, opts: BridgeOptions, shutdownSignal:
 						error: "pi is not ready to run MCP tools yet: ask the agent to write or refresh an artifact in this session",
 					});
 				}
-				// MCP servers connect in the background; give a server that is still connecting a moment.
 				const deadline = performance.now() + (opts.connectWaitMs ?? 15_000);
 				while (!shutdownSignal.aborted && !runner.tools.some((t) => t.name === call.name) && performance.now() < deadline) {
 					await new Promise((r) => setTimeout(r, 200));
@@ -232,7 +208,6 @@ export interface Bridge {
 	close(): Promise<void>;
 }
 
-/** Start the bridge on a random loopback port. */
 export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
 	const token = randomBytes(24).toString("base64url");
 	const shutdown = new AbortController();

@@ -1,15 +1,8 @@
-/**
- * Server functions for the browser. They run inside the daemon (Vite's module runner) and
- * delegate to the daemon context; requests are authenticated by the daemon's guard
- * middleware (session cookie, same-origin for writes).
- */
 import { createServerFn } from "@tanstack/react-start";
 import type { DaemonContext } from "../../server/context.ts";
 import { assertMemoryKey, isValidId, isValidRuntimeId, SHARED_SCOPE } from "../../../shared/ids.ts";
 import type { MemorySnapshot } from "../../../shared/protocol.ts";
 
-// The daemon installs its context on globalThis; importing the class here would load a
-// second copy of the daemon's modules inside the module runner.
 const ctx = () => {
 	const c = (globalThis as Record<symbol, unknown>)[Symbol.for("pi-artifacts.daemon")] as DaemonContext | undefined;
 	if (!c) throw new Error("The viewer must run inside the pi-artifacts daemon");
@@ -26,7 +19,6 @@ function runtimeId(v: unknown): string {
 	return v;
 }
 
-// ---- artifacts & templates ------------------------------------------------------------
 
 export const listArtifactsFn = createServerFn({ method: "GET" }).handler(() => ctx().listArtifacts());
 
@@ -49,7 +41,6 @@ export const exportArtifactFn = createServerFn({ method: "POST" })
 		return { html: r.html, bytes: r.bytes, fileName: `${data}.html`, embedded: r.embedded };
 	});
 
-// ---- runtime feedback -------------------------------------------------------------------
 
 export const pingFn = createServerFn({ method: "POST" })
 	.validator(runtimeId)
@@ -67,7 +58,6 @@ export const reportErrorFn = createServerFn({ method: "POST" })
 		return null;
 	});
 
-// ---- memory (SQLite) ---------------------------------------------------------------------
 
 type Scoped = { scope: string; key: string; from?: string };
 
@@ -83,13 +73,11 @@ export const memoryGetFn = createServerFn({ method: "POST" })
 		const scope = c.scope(data.scope);
 		const value = c.memory.get(scope, data.key);
 		if (value !== undefined && scope === SHARED_SCOPE && isValidRuntimeId(data.from)) c.memory.noteSharedRead(data.from, data.key);
-		// `found` keeps a stored `null` apart from a missing key (undefined does not serialize).
 		return { found: value !== undefined, value: (value ?? null) as never };
 	});
 
 export const memorySetFn = createServerFn({ method: "POST" })
 	.validator((d: Scoped & { value: unknown }) => scoped(d, d.value !== undefined))
-	// undefined (dropped by serialization) deletes the key, as in exports.
 	.handler(({ data }) => {
 		const scope = ctx().scope(data.scope);
 		const entry = ctx().memory.set(scope, data.key, data.value);
@@ -132,7 +120,6 @@ export const memoryListFn = createServerFn({ method: "POST" })
 		return entries.map((e) => ({ key: e.key, value: e.value as never, updatedAt: e.updatedAt }));
 	});
 
-// ---- MCP (routed to a pi session's bridge) -----------------------------------------------
 
 export const mcpStatusFn = createServerFn({ method: "GET" }).handler(() => ctx().mcpStatus());
 

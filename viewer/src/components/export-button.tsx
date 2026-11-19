@@ -28,7 +28,6 @@ function List({ label, items }: { label: string; items: string[] }) {
 	);
 }
 
-/** Bundle the artifact into one self-contained HTML file; show what it embeds before saving. */
 export function ExportButton({ id }: { id: string }) {
 	const exp = useMutation({ mutationFn: () => exportArtifactFn({ data: id }) });
 	const r = exp.data;

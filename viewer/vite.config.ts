@@ -14,14 +14,13 @@ const ctx = (() => {
 	try {
 		return DaemonContext.current();
 	} catch {
-		return undefined; // e.g. `vite build` or tooling loading the config
+		return undefined;
 	}
 })();
 
 const cachePath = join(artifactsDir(), ".vite-cache", createHash("sha256").update(resolvePhysicalPath(stateDir())).digest("hex").slice(0, 20));
 
 export default defineConfig({
-	// Separate viewer instances must not rewrite each other's optimized dependencies.
 	cacheDir: ctx?.aliases.map(cachePath) ?? cachePath,
 	server: {
 		host: "127.0.0.1",
@@ -30,8 +29,6 @@ export default defineConfig({
 	},
 	resolve: { ...sharedResolve(), preserveSymlinks: !!ctx?.aliases.paths.length || runtimeNeedsPreserveSymlinks(PACKAGE_ROOT) },
 	optimizeDeps: {
-		// Artifacts are not crawled at startup; pre-bundle what they may import so the
-		// first artifact load does not trigger a dependency re-optimization reload.
 		include: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "recharts", "lucide-react", "radix-ui", "@tanstack/react-query", "@tanstack/react-table", "class-variance-authority", "clsx", "tailwind-merge", "mermaid", "react-markdown", "remark-gfm", "github-slugger"],
 	},
 	plugins: [

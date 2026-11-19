@@ -6,7 +6,6 @@ import { useArtifactsChanged } from "@/lib/hmr";
 import { getArtifactFn } from "@/server/fns";
 
 export const Route = createFileRoute("/a/$id")({
-	// Artifacts are client components (they use browser APIs freely); skip SSR.
 	ssr: false,
 	loader: ({ params }) => getArtifactFn({ data: params.id }),
 	component: ArtifactPage,

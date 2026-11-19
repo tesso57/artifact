@@ -2,7 +2,6 @@ import { isValidId } from "../../shared/ids.ts";
 
 type ModuleKind = "a" | "t";
 
-/** Vite treats these characters as URL syntax in physical module IDs. */
 export function needsVirtualModule(file: string): boolean {
 	return /[#?%]/.test(file);
 }

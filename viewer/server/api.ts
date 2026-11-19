@@ -1,9 +1,3 @@
-/**
- * HTTP surface of the daemon:
- *  - guardMiddleware: every request needs the session cookie (browser) or the secret
- *    header (pi extension); state-changing browser requests must be same-origin.
- *  - apiMiddleware: `/__pi/login`, `/__pi/theme.css` and the extension's `/__pi/api/*`.
- */
 import { existsSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { resolve } from "node:path";
@@ -50,7 +44,6 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
 }
 
 function contentSecurityPolicy(ctx: DaemonContext): string {
-	// Artifacts run in the viewer's origin: keep them from sending data anywhere else.
 	return [
 		"default-src 'self'",
 		"script-src 'self' 'unsafe-inline'",
@@ -64,7 +57,6 @@ function contentSecurityPolicy(ctx: DaemonContext): string {
 	].join("; ");
 }
 
-/** Same-origin check for browser requests that change state. */
 function sameOrigin(req: IncomingMessage, ctx: DaemonContext): boolean {
 	if (req.headers["sec-fetch-site"] && !["same-origin", "none"].includes(String(req.headers["sec-fetch-site"]))) return false;
 	const origin = req.headers.origin;
@@ -79,13 +71,11 @@ export function guardMiddleware(ctx: DaemonContext): Connect.NextHandleFunction 
 		res.setHeader("referrer-policy", "no-referrer");
 		const path = (req.url ?? "/").split("?")[0];
 		if (path === "/__pi/login") return next();
-		// Vite's open-in-editor endpoint would let page scripts open files in the user's editor.
 		if (path.startsWith("/__open-in-editor")) return send(res, 403, { error: "Forbidden" });
 		if (ctx.isSecret(req.headers[DAEMON_SECRET_HEADER])) {
 			ctx.touch();
 			return next();
 		}
-		// The open-tab banner polls this; it must not keep an idle daemon alive.
 		if (path === "/__pi/session") return send(res, ctx.browserSession(cookie(req, ctx.cookieName)) ? 200 : 401, {});
 		if (ctx.browserSession(cookie(req, ctx.cookieName)) && !path.startsWith("/__pi/api/")) {
 			ctx.touch();
@@ -112,7 +102,6 @@ type Handler = (ctx: DaemonContext, body: any, url: URL) => Promise<unknown> | u
 const routes: Record<string, Handler> = {
 	"GET /health": (ctx) => ({ protocol: PROTOCOL_VERSION, version: ctx.version, pid: process.pid, port: ctx.port, sessions: ctx.sessions.size }),
 	"POST /shutdown": (ctx) => {
-		// After the response is sent; process.kill(SIGTERM) would skip cleanup on Windows.
 		setTimeout(() => ctx.onShutdown(), 50);
 		return { ok: true };
 	},
@@ -162,7 +151,6 @@ const routes: Record<string, Handler> = {
 		assertArtifactId(body.id);
 		const outFile = body.outFile ? resolve(body.outFile) : undefined;
 		if (outFile && !/\.html?$/i.test(outFile)) throw new Error("Exports must be written to an .html file");
-		// Fail fast before bundling; the write itself also refuses to replace files ("wx").
 		if (outFile && !body.overwrite && existsSync(outFile)) throw new Error(`${outFile} already exists`);
 		const r = await ctx.exportArtifact(body.id, outFile, body.overwrite === true);
 		return { file: r.file, bytes: r.bytes, embedded: r.embedded };
@@ -234,7 +222,6 @@ export function apiMiddleware(ctx: DaemonContext): Connect.NextHandleFunction {
 			const token = url.searchParams.get("t");
 			res.statusCode = 302;
 			if (ctx.browserSession(cookie(req, ctx.cookieName))) {
-				// Already signed in (e.g. the same link clicked again): just go there.
 				res.setHeader("location", ctx.followLink(token) ?? "/");
 				return res.end();
 			}

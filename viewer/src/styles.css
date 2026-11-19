@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Artifact and template sources live outside the viewer; the pi-artifacts Vite plugin fills them in. */
 @source "PI_ARTIFACTS_SOURCES";
 @source "./";
 

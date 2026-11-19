@@ -1,10 +1,3 @@
-/**
- * Export one artifact as a single, self-contained HTML file: the artifact, React, the
- * SDK (static backend), shadcn/ui and the Tailwind CSS it uses are bundled and inlined,
- * together with a snapshot of its memory and of the MCP results it last fetched.
- *
- * The daemon collects the snapshot and assembles the page; bundling runs in a worker.
- */
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -30,11 +23,9 @@ export interface ExportResult {
 	html: string;
 	bytes: number;
 	file?: string;
-	/** What the file contains besides code, so the user can decide whether to share it. */
 	embedded: { memoryKeys: string[]; sharedKeys: string[]; mcpCalls: string[] };
 }
 
-/** The artifact's own memory, the shared keys it read, and its cached MCP results. */
 export function collectSnapshot(memory: Memory, meta: Pick<ArtifactMeta, "id" | "title" | "description" | "mcp">): ArtifactSnapshot {
 	const own = memory.list(meta.id);
 	const shared = memory.listReadShared(meta.id);
@@ -50,13 +41,11 @@ export function collectSnapshot(memory: Memory, meta: Pick<ArtifactMeta, "id" | 
 	};
 }
 
-/** `</script>` and `<!--` must not appear inside inline scripts. */
 export function escapeInlineScript(code: string): string {
 	return code.replace(/<\/(script)/gi, "<\\/$1").replace(/<!--/g, "<\\!--");
 }
 
 export function renderHtml(opts: { title: string; css: string; js: string; snapshot: ArtifactSnapshot }): string {
-	// Parse JSON at runtime: object literals treat a "__proto__" key as a prototype setter.
 	const data = JSON.stringify(JSON.stringify(opts.snapshot)).replace(/</g, "\\u003c");
 	const title = opts.title.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 	return `<!doctype html>
@@ -91,7 +80,6 @@ mount(Artifact);`;
 	};
 }
 
-/** Bundle an artifact's code and CSS (runs in the export worker, NODE_ENV=production). */
 export async function bundleArtifact(entry: string, sources: string[], aliasRoots: string[] = []): Promise<{ js: string; css: string }> {
 	const output = (await build({
 		configFile: false,
@@ -102,7 +90,6 @@ export async function bundleArtifact(entry: string, sources: string[], aliasRoot
 		resolve: { ...sharedResolve([
 			{ find: /^@\/sdk\/backend$/, replacement: join(VIEWER_DIR, "src/export/static-backend.ts") },
 		]), preserveSymlinks: aliasRoots.length > 0 || runtimeNeedsPreserveSymlinks(PACKAGE_ROOT) },
-		// Tailwind only needs to see this artifact (plus the viewer's own sources).
 		plugins: [entryPlugin(entry), piArtifactsPlugin({ sources, virtualSource: needsVirtualModule(entry) ? { id: VIRTUAL_ARTIFACT, file: entry } : undefined }), tailwindcss(), viteReact()],
 		build: {
 			write: false,
@@ -114,7 +101,6 @@ export async function bundleArtifact(entry: string, sources: string[], aliasRoot
 			reportCompressedSize: false,
 			rollupOptions: {
 				input: ENTRY,
-				// One chunk: everything is inlined into the page.
 				output: { codeSplitting: false, format: "es" } as Rollup.OutputOptions,
 			},
 		},
@@ -133,10 +119,6 @@ export async function bundleArtifact(entry: string, sources: string[], aliasRoot
 	return { js, css };
 }
 
-/**
- * The daemon runs a dev server with NODE_ENV=development, which would make React's plugin
- * emit development JSX; bundling therefore runs in a short-lived worker process.
- */
 function bundleInWorker(entry: string, sources: string[], aliasRoots: string[]): Promise<{ js: string; css: string }> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(process.execPath, [...process.execArgv, join(VIEWER_DIR, "server", "export-worker.ts")], {

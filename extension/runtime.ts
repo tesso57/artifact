@@ -7,11 +7,6 @@ import { DaemonClient } from "./daemon-client.ts";
 const HEARTBEAT_MS = 30_000;
 const REGISTRATION_TIMEOUT_MS = 5_000;
 
-/**
- * Per-session state: this session's MCP bridge and its registration with the shared viewer
- * daemon. The daemon outlives sessions (it serves pi sessions in the same project and stops
- * itself when idle), so `session_shutdown` only unregisters.
- */
 export class ArtifactsRuntime {
 	readonly daemon = new DaemonClient();
 	private bridge: Bridge | undefined;
@@ -29,7 +24,6 @@ export class ArtifactsRuntime {
 
 	constructor(pi: ExtensionAPI) {
 		this.pi = pi;
-		// A daemon this session started (e.g. after an idle exit) must learn about it at once.
 		this.daemon.onStarted = () => {
 			if (this.bridge) void this.sendRegistration(false).catch(() => {});
 		};
@@ -39,7 +33,6 @@ export class ArtifactsRuntime {
 		return this.sessionId;
 	}
 
-	/** Remember the UI context for status updates and approvals. */
 	attach(ctx: ExtensionContext): void {
 		this.daemon.setProject(ctx.cwd);
 		this.ui = ctx;
@@ -48,18 +41,12 @@ export class ArtifactsRuntime {
 		} catch {}
 	}
 
-	/**
-	 * Keep the context of a running tool call. Its `executeTool` stays usable after the call
-	 * returns and runs MCP tools through pi's pipeline (hooks, permission gates). Cleared on
-	 * session shutdown.
-	 */
 	captureToolContext(ctx: ExtensionContext): void {
 		this.attach(ctx);
 		const candidate = ctx as Partial<ToolRunner>;
 		if (typeof candidate.executeTool !== "function") return;
 		const first = !this.runner;
 		this.runner = candidate as ToolRunner;
-		// Tell the daemon right away that this session can now run MCP tools for artifacts.
 		if (first && this.registered) void this.sendRegistration(false).catch(() => {});
 	}
 
@@ -81,13 +68,11 @@ export class ArtifactsRuntime {
 		return request;
 	}
 
-	/** Register with a daemon that is already running; never starts one (cheap, for session start). */
 	async connectIfRunning(): Promise<void> {
 		const generation = this.generation;
 		if (await this.daemon.running() && generation === this.generation) await this.connect(false);
 	}
 
-	/** Start the daemon if needed, start the bridge and register this session (idempotent). */
 	connect(start = true): Promise<void> {
 		this.registered ??= this.register(start).catch((error) => {
 			this.registered = undefined;
@@ -109,19 +94,16 @@ export class ArtifactsRuntime {
 		});
 		await this.sendRegistration(start);
 		clearInterval(this.heartbeat);
-		// Heartbeats never start a viewer: after /artifacts stop (or idle exit) it stays stopped.
 		this.heartbeat = setInterval(() => void this.sendRegistration(false).catch(() => {}), HEARTBEAT_MS);
 		this.heartbeat.unref?.();
 		this.updateStatus();
 	}
 
 	private async confirm(req: BridgeCallRequest): Promise<boolean> {
-		// PI_ARTIFACTS_MCP_APPROVAL: "allow" (headless setups), "deny", or ask (default).
 		const policy = process.env.PI_ARTIFACTS_MCP_APPROVAL;
 		if (policy === "allow") return true;
 		if (policy === "deny") return false;
 		const ui = this.ui;
-		// Without a UI nobody can approve; read-only tools never get here.
 		if (!ui?.hasUI) return false;
 		return ui.ui.confirm(
 			"An artifact wants to run an MCP tool",
@@ -134,8 +116,6 @@ export class ArtifactsRuntime {
 		this.registrationAbort.abort();
 		clearInterval(this.heartbeat);
 		this.heartbeat = undefined;
-		// A registration can finish after shutdown begins. Wait for it before removing
-		// the session, otherwise its late response can recreate a stale registration.
 		const registered = this.registered;
 		if (registered) await registered.catch(() => {});
 		clearInterval(this.heartbeat);

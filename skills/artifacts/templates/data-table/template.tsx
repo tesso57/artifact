@@ -1,9 +1,3 @@
-/**
- * Template: searchable, sortable, paginated records with a filter in the toolbar
- * (remembered in memory) and a detail dialog on row click.
- *
- * Adapt: replace `Row`, `ROWS` (or fetch with useMcp / <McpQuery>) and the columns.
- */
 import { useMemory } from "@pi/artifact";
 import { useMemo, useState } from "react";
 import { createColumns, DataTable, SortHeader } from "@/components/blocks";

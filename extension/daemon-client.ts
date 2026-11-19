@@ -1,10 +1,3 @@
-/**
- * Finds or starts the per-project viewer daemon and talks to its HTTP API.
- *
- * When this package is installed inside a node_modules folder (npm installs), Node will not
- * run its TypeScript and Vite plugins skip it, so the daemon's sources are copied to
- * the project runtime directory first, with links back to the installed dependencies.
- */
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { chmodSync, closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -42,7 +35,6 @@ function isHealth(value: unknown): value is Health {
 	return Number.isInteger(health.protocol) && typeof health.version === "string" && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(health.version);
 }
 
-/** A daemon this client can use: same protocol, and not older than this package. */
 export function compatible(h: Health | undefined): boolean {
 	return isHealth(h) && h.protocol === PROTOCOL_VERSION && compareVersions(h.version, PACKAGE_VERSION) >= 0;
 }
@@ -72,7 +64,6 @@ async function healthy(state: DaemonState): Promise<Health | undefined> {
 	}
 }
 
-/** Cancel one caller's wait without cancelling a startup shared by other sessions. */
 function waitForStartup<T>(startup: Promise<T>, signal?: AbortSignal): Promise<T> {
 	if (!signal) return startup;
 	if (signal.aborted) return Promise.reject(signal.reason);
@@ -86,7 +77,6 @@ function waitForStartup<T>(startup: Promise<T>, signal?: AbortSignal): Promise<T
 	});
 }
 
-/** The node_modules folder that contains this package, if it is installed in one. */
 function enclosingNodeModules(root: string): string | undefined {
 	const parts = root.split(sep);
 	const i = parts.lastIndexOf("node_modules");
@@ -95,7 +85,6 @@ function enclosingNodeModules(root: string): string | undefined {
 
 const RUNTIME_PARTS = ["viewer", "shared", "package.json", "tsconfig.base.json", join("skills", "artifacts", "templates")];
 
-/** Vite cannot load its own runtime from a directory containing URL delimiters. */
 function usableRuntimeDir(cwd: string): string {
 	const configured = resolve(runtimeDir(cwd));
 	const physical = resolvePhysicalPath(configured);
@@ -128,11 +117,8 @@ function walk(dir: string, out: string[] = []): string[] {
 	return out;
 }
 
-/** Hash of the daemon sources, so a reinstall with changed files gets a fresh copy. */
 function sourceStamp(root: string, dependencyRoot: string): string {
 	const hash = createHash("sha256");
-	// Runtime copies contain dependency links; equal sources at different install
-	// locations must not share a copy that points at the wrong installation.
 	hash.update(resolve(root));
 	for (const path of [join(root, "node_modules"), dependencyRoot]) {
 		if (existsSync(path)) hash.update(realpathSync(path));
@@ -145,7 +131,6 @@ function sourceStamp(root: string, dependencyRoot: string): string {
 	return `${PACKAGE_VERSION}-${hash.digest("hex").slice(0, 12)}`;
 }
 
-/** Directory to run the daemon from (the package itself, or a runtime copy). */
 export function runtimeRoot(root = PACKAGE_ROOT, cwd = process.cwd()): string {
 	const physicalRoot = resolvePhysicalPath(root);
 	const hoisted = enclosingNodeModules(physicalRoot) ?? enclosingNodeModules(root);
@@ -165,7 +150,6 @@ export function runtimeRoot(root = PACKAGE_ROOT, cwd = process.cwd()): string {
 		if (existsSync(join(target, ".ready"))) return target;
 		throw new Error(`Could not finalize runtime at ${target}: path is already occupied`);
 	}
-	// Build in a private folder, then rename: concurrent sessions never see a half copy.
 	mkdirSync(runtimeBase, { recursive: true, mode: 0o700 });
 	const tmp = mkdtempSync(`${target}.tmp-`);
 	try {
@@ -173,7 +157,6 @@ export function runtimeRoot(root = PACKAGE_ROOT, cwd = process.cwd()): string {
 			cpSync(join(root, part), join(tmp, part), { recursive: true, filter: (src) => basename(src) !== "node_modules" });
 		}
 		const link = (from: string, to: string) => existsSync(to) && symlinkSync(to, from, process.platform === "win32" ? "junction" : "dir");
-		// Dependencies nested under the package win over hoisted ones, as in the original layout.
 		link(join(tmp, "viewer", "node_modules"), join(root, "node_modules"));
 		link(join(tmp, "node_modules"), dependencies);
 		cpSync(join(root, "package.json"), join(tmp, ".ready"));
@@ -181,14 +164,13 @@ export function runtimeRoot(root = PACKAGE_ROOT, cwd = process.cwd()): string {
 			renameSync(tmp, target);
 		} catch (error) {
 			if (!existsSync(join(target, ".ready"))) throw new Error(`Could not finalize runtime at ${target}`, { cause: error });
-			rmSync(tmp, { recursive: true, force: true }); // another session won the race
+			rmSync(tmp, { recursive: true, force: true });
 		}
 	} catch (error) {
 		try { rmSync(tmp, { recursive: true, force: true }); }
 		catch (cleanupError) { throw new AggregateError([error, cleanupError], `Could not clean up temporary runtime ${tmp}`); }
 		throw error;
 	}
-	// Old copies are pruned by the daemon once it holds the lock (it knows which copy it runs).
 	return target;
 }
 
@@ -202,14 +184,12 @@ export class DaemonClient {
 	get artifactsRoot(): string { return artifactsDir(this.cwd); }
 	private state: DaemonState | undefined;
 	private starting: Promise<DaemonState> | undefined;
-	/** Called after this client started a new daemon (the session re-registers right away). */
 	onStarted: (() => void) | undefined;
 
 	get url(): string | undefined {
 		return this.state?.url;
 	}
 
-	/** Whether a usable daemon is already running (never starts one). */
 	async running(): Promise<boolean> {
 		const state = readState(this.cwd);
 		if (!state || !compatible(await healthy(state))) return false;
@@ -217,7 +197,6 @@ export class DaemonClient {
 		return true;
 	}
 
-	/** A running daemon of this version (started if needed). */
 	ensure(): Promise<DaemonState> {
 		this.starting ??= this.connect().finally(() => {
 			this.starting = undefined;
@@ -234,13 +213,10 @@ export class DaemonClient {
 				throw new Error(`A newer, incompatible artifact viewer (${health.version}) is running; update pi-artifacts`);
 			}
 			if (health) {
-				// An older viewer: replace it so code and API match this extension.
 				await fetch(`${existing.url}/__pi/api/shutdown`, { method: "POST", headers: { [DAEMON_SECRET_HEADER]: existing.secret } }).catch(() => {});
 				for (let i = 0; i < 40 && (await healthy(existing)); i++) await new Promise((r) => setTimeout(r, 100));
 			}
 		}
-		// A daemon that holds the lock but is not answering yet (starting, or busy): wait for it
-		// rather than racing it with a second spawn.
 		for (let i = 0; i < 100 && lockOwnerAlive(this.cwd); i++) {
 			const state = readState(this.cwd);
 			if (state && compatible(await healthy(state))) return (this.state = state);
@@ -286,8 +262,6 @@ export class DaemonClient {
 			if (state && compatible(await healthy(state))) return state;
 			if (spawnError) throw new Error(`Could not start the artifact viewer with ${bin}: ${spawnError.message}`, { cause: spawnError });
 			if (child.exitCode === LEGACY_LOCK_EXIT_CODE) break;
-			// Our daemon may have exited because another session's daemon holds the lock and is
-			// still starting: keep waiting while that owner lives.
 			if (child.exitCode !== null && !lockOwnerAlive(this.cwd) && !readState(this.cwd)) break;
 			await new Promise((r) => setTimeout(r, 200));
 		}
@@ -301,18 +275,12 @@ export class DaemonClient {
 		throw new Error(`The artifact viewer did not start (log: ${logFile})\n${tail}`);
 	}
 
-	/**
-	 * Call the daemon API. With `start` (the default, for user and agent actions) a missing
-	 * daemon is started, and a failed GET can restart it once; POSTs are not retried because
-	 * the server may already have applied them. Background calls pass `start: false`.
-	 */
 	async api<T>(path: string, body?: unknown, { start = true, timeoutMs = 300_000, beforeSendSignal }: { start?: boolean; timeoutMs?: number; beforeSendSignal?: AbortSignal } = {}): Promise<T> {
 		const retry = start;
 		let state: DaemonState;
 		beforeSendSignal?.throwIfAborted();
 		if (start) state = await waitForStartup(this.ensure(), beforeSendSignal);
 		else {
-			// Background calls re-read the state file: a replacement daemon has a new secret.
 			const current = readState(this.cwd);
 			if (!current) throw new ViewerNotRunningError();
 			state = this.state = current;
@@ -333,11 +301,10 @@ export class DaemonClient {
 				throw new Error(`Viewer API ${path} ${reason}; the operation may have completed. Check the result before retrying.`, { cause: error });
 			}
 			if (!retry) throw error;
-			// The daemon went away (crash, idle exit): start a new one and retry once.
 			await this.ensure();
 			return this.api<T>(path, body, { start: false, timeoutMs, beforeSendSignal });
 		}
-		if (res.status === 401) this.state = undefined; // the daemon was replaced
+		if (res.status === 401) this.state = undefined;
 		const json = (await res.json().catch((error: unknown) => {
 			if (res.ok) throw new Error(`Viewer API ${path} returned an unreadable response; the operation's outcome may be unknown. Check the result before retrying.`, { cause: error });
 			return {};
@@ -346,7 +313,6 @@ export class DaemonClient {
 		return json;
 	}
 
-	/** A one-use login link for the browser that opens `next` while the viewer is running. */
 	async link(next = "/"): Promise<string> {
 		return (await this.api<{ url: string }>("/link", { next })).url;
 	}

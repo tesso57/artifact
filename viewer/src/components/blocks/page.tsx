@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/**
- * Layout primitives of the artifact design system. Every artifact should be:
- *   <Page> <PageHeader …/> <Section …>…</Section> … </Page>
- * so spacing, widths and type scale stay consistent across artifacts.
- */
 
 const WIDTHS = { sm: "max-w-xl", md: "max-w-3xl", lg: "max-w-5xl", xl: "max-w-6xl", full: "max-w-none" } as const;
 
@@ -21,9 +16,7 @@ export function PageHeader({
 }: {
 	title: ReactNode;
 	description?: ReactNode;
-	/** Buttons, tabs or filters, right-aligned on wide screens. */
 	actions?: ReactNode;
-	/** Small label above the title (category, date, source). */
 	eyebrow?: ReactNode;
 }) {
 	return (
@@ -74,7 +67,6 @@ const COLS = {
 	4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4",
 } as const;
 
-/** Responsive grid: collapses to one column on phones. */
 export function Grid({ cols = 3, className, children }: { cols?: keyof typeof COLS; className?: string; children: ReactNode }) {
 	return <div className={cn("grid gap-4", COLS[cols], className)}>{children}</div>;
 }

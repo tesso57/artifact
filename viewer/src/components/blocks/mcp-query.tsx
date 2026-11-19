@@ -2,15 +2,6 @@ import type { ReactNode } from "react";
 import { useMcp } from "@pi/artifact";
 import { ErrorState, QueryState } from "./query-state";
 
-/**
- * Call an MCP tool through pi and render its data with shadcn loading / error / empty states.
- *
- *   <McpQuery<Issue[]> tool="github.list_issues" args={{ state: "open" }}>
- *     {(issues) => <DataTable data={issues} columns={columns} />}
- *   </McpQuery>
- *
- * `children` receives `data` (structuredContent or parsed JSON) and the raw text.
- */
 export function McpQuery<T = unknown>({
 	tool,
 	args = {},
@@ -24,7 +15,6 @@ export function McpQuery<T = unknown>({
 	tool: string;
 	args?: Record<string, unknown>;
 	children: (data: T, text: string) => ReactNode;
-	/** Pick or reshape the part you need, e.g. `(d) => d.items`. */
 	select?: (data: unknown) => T;
 	loading?: ReactNode;
 	empty?: ReactNode;

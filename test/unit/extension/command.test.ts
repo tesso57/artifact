@@ -80,3 +80,22 @@ it("reports whether stopping the viewer was requested, unnecessary, or failed", 
 	await mock.runCommand("artifacts", "stop");
 	expect(mock.notifications.at(-1)).toEqual({ message: "Artifacts: connection refused", type: "error" });
 });
+
+it("shows all artifact options and completes matching IDs without dropping later entries", async () => {
+ const mock = createMockPi({ select: [undefined] });
+ const all = ["alpha", "beta", "gamma", "delta", "epsilon", "demo-target", "demo-archive"].map((id) => ({ id, title: `Title ${id}` }));
+ const api = vi.fn(async () => all);
+ let complete: ((prefix: string) => unknown) | undefined;
+ const register = vi.spyOn(mock.pi, "registerCommand").mockImplementation((name, command) => {
+  if (name === "artifacts") complete = command.getArgumentCompletions;
+ });
+ registerArtifactsCommand(mock.pi, { attach: () => {}, daemon: { api, artifactsRoot: "/fixture" } } as never);
+ expect(complete).toBeDefined();
+ const matches = await complete!("demo");
+ expect(matches).toEqual([{ value: "demo-target", label: "demo-target", description: "Title demo-target" }, { value: "demo-archive", label: "demo-archive", description: "Title demo-archive" }]);
+ register.mockRestore();
+ const second = createMockPi({ select: [undefined] });
+ registerArtifactsCommand(second.pi, { attach: () => {}, daemon: { api, artifactsRoot: "/fixture" } } as never);
+ await second.runCommand("artifacts");
+ expect(second.dialogs[0]).toMatchObject({ kind: "select", options: ["▸ Open gallery", ...all.map((a) => `${a.title}  (${a.id})`)] });
+});

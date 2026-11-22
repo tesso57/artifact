@@ -439,6 +439,7 @@ describe("daemon compatibility", () => {
 		["0.4.7", "Windows stylesheet refresh"],
 		["0.4.8", "non-expiring unused links"],
 		["0.4.9", "project-specific artifact roots"],
+		["0.5.0", "gallery update recovery"],
 	])("does not reuse a %s viewer without %s", (version) => {
 		expect(compatible({ protocol: PROTOCOL_VERSION, version })).toBe(false);
 	});

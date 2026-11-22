@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { FileCode2, Folder, Search, Sparkles } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ErrorPanel } from "@/components/artifact-error";
 import { McpBadge } from "@/components/mcp-badge";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -27,6 +27,21 @@ function Home() {
 	const router = useRouter();
 	const [q, setQ] = useState("");
 	useArtifactsChanged(useCallback(() => router.invalidate(), [router]));
+	useEffect(() => {
+		// Events can be missed before hydration or while the HMR connection is down.
+		const refresh = () => { if (document.visibilityState === "visible" && navigator.onLine) void router.invalidate(); };
+		refresh();
+		window.addEventListener("online", refresh);
+		window.addEventListener("focus", refresh);
+		document.addEventListener("visibilitychange", refresh);
+		const timer = window.setInterval(refresh, 10_000);
+		return () => {
+			window.clearInterval(timer);
+			window.removeEventListener("online", refresh);
+			window.removeEventListener("focus", refresh);
+			document.removeEventListener("visibilitychange", refresh);
+		};
+	}, [router]);
 
 	const filtered = useMemo(() => {
 		const needle = q.trim().toLowerCase();

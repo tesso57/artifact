@@ -87,6 +87,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Render every bundled template (light + dark)
         run: npm run check:templates -- "$RUNNER_TEMP/screenshots"
+      - name: Gallery catches missed updates
+        run: npm run test:gallery
       - name: Project isolation and restart
         run: npm run test:projects
       - name: Real pi sessions drive artifacts through the viewer daemon
